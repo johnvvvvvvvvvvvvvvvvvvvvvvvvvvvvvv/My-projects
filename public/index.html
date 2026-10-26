@@ -682,6 +682,42 @@ $('go').onclick=function(){auth('login')};rg.onclick=function(){auth('register')
 pw.onkeydown=function(e){if(e.key==='Enter'&&!e.isComposing)auth('login')};
 api('me').then(function(r){if(r.j&&r.j.user)enter(r.j.user);else lg.style.visibility='visible'}).catch(function(){lg.style.visibility='visible'});
 })();
+
+/* ===== v14: حفظ الرسائل والخاص والعملات على السيرفر ===== */
+(function(){
+var SH0={coins:200,inv:[],eq:{},wish:[],day:'',last:'',streak:0,claimed:0,cnt:{msg:0,fr:0,rx:0},done:{},hid:[],extra:[],tx:[],sales:{},gd:'',ga:0};
+var real={},lastId={},pmLast=0,firstPm=1,seen={},pseen={},busy=0,timers={};
+function api(p,b,m){return fetch('/api/'+p,{method:m||(b?'POST':'GET'),headers:{'content-type':'application/json'},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json().then(function(j){return {s:r.status,j:j}})})}
+function ru(o){var u=real[o.id];if(!u){u={id:1000+o.id,sid:o.id,room:null,muted:false,c:CL[o.id%6],msgs:0,gifts:[],conf:[]};real[o.id]=u;users.push(u)}
+u.name=o.name;u.role=o.role==='owner'?'owner':'member';u.rank=o.rank||0;u.age=o.age;u.gender=o.gender||'-';u.country=o.country||'-';u.lang=o.lang||'-';u.join=o.created_at||Date.now();return u}
+function push(k,d){clearTimeout(timers[k]);timers[k]=setTimeout(function(){api('state',{k:k,data:d},'PUT').catch(function(){})},1500)}
+var _ss=saveSH;saveSH=function(){_ss();push('shop',SH)};
+var _sv=saveST;saveST=function(){_sv();push('st',ST)};
+var _sp=setPref;setPref=function(k,v){_sp(k,v);push('pf',PF)};
+var _p=post;post=function(r,u,t,s,ex){var m=_p(r,u,t,s,ex);
+if(me&&me.sid&&u===me&&!s&&!(ex&&ex.srv)){busy++;api('msg',{room:r,text:t}).then(function(x){if(x.j&&x.j.id){seen[x.j.id]=1;lastId[r]=Math.max(lastId[r]||0,x.j.id)}}).catch(function(){}).then(function(){busy--})}
+return m};
+function sendPM2(){if(!pm||!pm.sid){return sendPM()}var v=$('pi').value.trim();if(!v)return;$('pi').value='';
+(pms[pm.id]=pms[pm.id]||[]).push({id:mid++,u:me,t:v,ts:Date.now(),rx:{}});drawPM();
+busy++;api('pm',{to:pm.sid,text:v}).then(function(x){if(x.j&&x.j.id){pseen[x.j.id]=1;pmLast=Math.max(pmLast,x.j.id)}else alert((x.j&&x.j.error)||'تعذر الإرسال')}).catch(function(){}).then(function(){busy--})}
+$('ps').onclick=sendPM2;$('pi').onkeydown=function(e){if(e.key==='Enter'&&!e.isComposing)sendPM2()};
+function poll(){if(document.hidden||busy||!me||!me.sid)return;var r=room;
+api('poll?room='+encodeURIComponent(r)+'&after='+(lastId[r]||0)+'&pmafter='+pmLast).then(function(x){if(x.s!==200||busy)return;var j=x.j,ch=0;(j.users||[]).forEach(ru);
+(j.msgs||[]).forEach(function(m){lastId[r]=Math.max(lastId[r]||0,m.id);if(seen[m.id])return;seen[m.id]=1;
+var u=m.uid===me.sid?me:real[m.uid];if(!u)return;if(u!==me&&Date.now()-m.ts<12e4){u.room=r;ch=1}post(r,u,m.text,0,{ts:m.ts,srv:1})});
+(j.pms||[]).forEach(function(p){pmLast=Math.max(pmLast,p.id);if(pseen[p.id])return;pseen[p.id]=1;var mine=p.from===me.sid,o=real[mine?p.to:p.from];if(!o)return;
+(pms[o.id]=pms[o.id]||[]).push({id:mid++,u:mine?me:o,t:p.text,ts:p.ts,rx:{}});
+if(!mine&&!firstPm){if(pm===o)drawPM();else{unr[o.id]=(unr[o.id]||0)+1;nb();notify('pm','رسالة جديدة من '+o.name)}}});
+firstPm=0;if(pm&&pm.sid)drawPM();if(ch)drawUsers()}).catch(function(){})}
+var t0=setInterval(function(){if(!me)return;clearInterval(t0);
+api('me').then(function(r){if(!r.j||!r.j.user)return;me.sid=r.j.user.id;
+setTimeout(function(){users.forEach(function(u){if(u.id<100)u.bu=Infinity});drawUsers()},2000);
+return api('state')}).then(function(r){if(!r)return;var d=(r.j&&r.j.state)||{};
+Object.keys(SH).forEach(function(k){delete SH[k]});Object.assign(SH,JSON.parse(JSON.stringify(SH0)),d.shop||{});
+if(d.st)Object.assign(ST,d.st);if(d.pf){Object.assign(PF,d.pf);applyPf()}
+try{localStorage.setItem('chatshop',JSON.stringify(SH))}catch(e){}if(typeof applyEq==='function')applyEq();
+poll();setInterval(poll,5000)}).catch(function(){})},400);
+})();
 </script>
 </body>
 </html>
