@@ -116,6 +116,72 @@ async function logout(req, env) {
   return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
 }
 
+
+const ROOMS = ['العامة','الخليج','مصر','المغرب العربي','الشباب','الثقافة والمنوعات','غرفة المشرفين'];
+const STATE_KEYS = ['shop', 'st', 'pf'];
+const roomOk = (r, u) => ROOMS.includes(r) && (r !== 'غرفة المشرفين' || u.role === 'owner');
+const needUser = async (req, env) => (await currentUser(req, env)) || null;
+
+async function postMsg(req, env, u) {
+  const b = await readBody(req);
+  const text = String((b && b.text) || '').trim().slice(0, 300);
+  if (!text || !b || !roomOk(b.room, u)) return json({ error: 'طلب غير صالح' }, 400);
+  const l = await env.DB.prepare('SELECT ts FROM messages WHERE user_id=? ORDER BY id DESC LIMIT 1').bind(u.id).first();
+  if (l && Date.now() - l.ts < 700) return json({ error: 'أبطئ قليلاً' }, 429);
+  const r = await env.DB.prepare('INSERT INTO messages(room,user_id,text,ts) VALUES(?,?,?,?)').bind(b.room, u.id, text, Date.now()).run();
+  return json({ ok: true, id: r.meta.last_row_id });
+}
+
+async function postPm(req, env, u) {
+  const b = await readBody(req);
+  const text = String((b && b.text) || '').trim().slice(0, 500);
+  const to = parseInt(b && b.to, 10);
+  if (!text || !(to > 0) || to === u.id) return json({ error: 'طلب غير صالح' }, 400);
+  if (!(await env.DB.prepare('SELECT id FROM users WHERE id=?').bind(to).first())) return json({ error: 'المستخدم غير موجود' }, 404);
+  const r = await env.DB.prepare('INSERT INTO pms(from_id,to_id,text,ts) VALUES(?,?,?,?)').bind(u.id, to, text, Date.now()).run();
+  return json({ ok: true, id: r.meta.last_row_id });
+}
+
+async function poll(url, env, u) {
+  const room = url.searchParams.get('room') || '';
+  const after = parseInt(url.searchParams.get('after'), 10) || 0;
+  const pmafter = parseInt(url.searchParams.get('pmafter'), 10) || 0;
+  let msgs = [];
+  if (roomOk(room, u)) {
+    msgs = (after > 0
+      ? await env.DB.prepare('SELECT id,user_id uid,text,ts FROM messages WHERE room=? AND id>? ORDER BY id LIMIT 100').bind(room, after).all()
+      : await env.DB.prepare('SELECT * FROM (SELECT id,user_id uid,text,ts FROM messages WHERE room=? ORDER BY id DESC LIMIT 50) ORDER BY id').bind(room).all()
+    ).results;
+  }
+  const pms = (pmafter > 0
+    ? await env.DB.prepare('SELECT id,from_id "from",to_id "to",text,ts FROM pms WHERE (to_id=? OR from_id=?) AND id>? ORDER BY id LIMIT 100').bind(u.id, u.id, pmafter).all()
+    : await env.DB.prepare('SELECT * FROM (SELECT id,from_id "from",to_id "to",text,ts FROM pms WHERE to_id=? OR from_id=? ORDER BY id DESC LIMIT 200) ORDER BY id').bind(u.id, u.id).all()
+  ).results;
+  const ids = [...new Set([...msgs.map((m) => m.uid), ...pms.flatMap((p) => [p.from, p.to])])].filter((i) => i !== u.id).slice(0, 90);
+  let users = [];
+  if (ids.length) {
+    users = (await env.DB.prepare('SELECT id,name,role,rank,age,gender,country,lang,created_at FROM users WHERE id IN (' + ids.map(() => '?').join(',') + ')').bind(...ids).all()).results;
+  }
+  return json({ msgs, pms, users });
+}
+
+async function getState(env, u) {
+  const rows = (await env.DB.prepare('SELECT k,data FROM user_state WHERE user_id=?').bind(u.id).all()).results;
+  const state = {};
+  for (const r of rows) { try { state[r.k] = JSON.parse(r.data); } catch {} }
+  return json({ state });
+}
+
+async function putState(req, env, u) {
+  const b = await readBody(req);
+  if (!b || !STATE_KEYS.includes(b.k)) return json({ error: 'طلب غير صالح' }, 400);
+  const data = JSON.stringify(b.data);
+  if (!data || data.length > 100000) return json({ error: 'حجم كبير' }, 413);
+  await env.DB.prepare('INSERT INTO user_state(user_id,k,data,updated) VALUES(?,?,?,?) ON CONFLICT(user_id,k) DO UPDATE SET data=excluded.data,updated=excluded.updated')
+    .bind(u.id, b.k, data, Date.now()).run();
+  return json({ ok: true });
+}
+
 export default {
   async fetch(req, env) {
     const url = new URL(req.url);
@@ -129,6 +195,16 @@ export default {
       if (req.method === 'GET' && url.pathname === '/api/me') {
         const u = await currentUser(req, env);
         return u ? json({ user: u }) : json({ user: null }, 401);
+      }
+      const protectedPaths = ['/api/msg', '/api/pm', '/api/poll', '/api/state'];
+      if (protectedPaths.includes(url.pathname)) {
+        const u = await needUser(req, env);
+        if (!u) return json({ error: 'سجّل الدخول أولاً' }, 401);
+        if (req.method === 'POST' && url.pathname === '/api/msg') return await postMsg(req, env, u);
+        if (req.method === 'POST' && url.pathname === '/api/pm') return await postPm(req, env, u);
+        if (req.method === 'GET' && url.pathname === '/api/poll') return await poll(url, env, u);
+        if (req.method === 'GET' && url.pathname === '/api/state') return await getState(env, u);
+        if (req.method === 'PUT' && url.pathname === '/api/state') return await putState(req, env, u);
       }
       return json({ error: 'غير موجود' }, 404);
     } catch (e) {
