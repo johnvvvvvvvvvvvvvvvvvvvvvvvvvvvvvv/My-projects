@@ -1,0 +1,17 @@
+{
+  "name": "arabic-chat",
+  "main": "worker.js",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": ["/api/*"]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "chat-db",
+      "database_id": "ضع-هنا-معرف-قاعدة-البيانات"
+    }
+  ]
+}
