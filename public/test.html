@@ -1,0 +1,13 @@
+<!DOCTYPE html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>اختبار الخادم</title>
+<style>body{font-family:Tahoma,Arial;max-width:420px;margin:30px auto;padding:0 14px}input,button{width:100%;padding:10px;margin:5px 0;font-size:16px}pre{background:#eee;padding:10px;white-space:pre-wrap}</style></head><body>
+<h2>اختبار تسجيل الدخول</h2>
+<input id="n" placeholder="الاسم"><input id="p" type="password" placeholder="كلمة المرور (8 أحرف+)"><input id="a" type="number" placeholder="العمر 18+">
+<button onclick="go('register')">تسجيل حساب جديد</button><button onclick="go('login')">دخول</button>
+<button onclick="me()">من أنا؟</button><button onclick="out()">خروج</button><pre id="o"></pre>
+<script>
+var o=document.getElementById('o');
+function show(r){return r.json().then(function(j){o.textContent=r.status+'\n'+JSON.stringify(j,null,2)})}
+function go(k){fetch('/api/'+k,{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({name:n.value,password:p.value,age:a.value})}).then(show)}
+function me(){fetch('/api/me').then(show)}
+function out(){fetch('/api/logout',{method:'POST'}).then(show)}
+</script></body></html>
