@@ -5,6 +5,7 @@ CREATE TABLE IF NOT EXISTS users (
   salt TEXT NOT NULL,
   role TEXT NOT NULL DEFAULT 'member',
   rank INTEGER NOT NULL DEFAULT 1,
+  room_mod_room TEXT DEFAULT NULL,
   age INTEGER NOT NULL,
   gender TEXT,
   country TEXT,
@@ -12,15 +13,32 @@ CREATE TABLE IF NOT EXISTS users (
   last_ip TEXT,
   created_at INTEGER NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS sessions (
   token_hash TEXT PRIMARY KEY,
   user_id INTEGER NOT NULL,
   created_at INTEGER NOT NULL,
   expires_at INTEGER NOT NULL
 );
+
 CREATE TABLE IF NOT EXISTS attempts (
   ip TEXT NOT NULL,
   ts INTEGER NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS watch_words (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  word TEXT UNIQUE NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS audit_logs (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target TEXT,
+  details TEXT,
+  created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+);
+
 CREATE INDEX IF NOT EXISTS idx_attempts_ip ON attempts(ip, ts);
 CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id);
