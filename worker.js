@@ -2,6 +2,7 @@
 // المرحلة 2: الغرف العامة المحفوظة في D1 (حفظ 30 يوماً) + المتصلون الحقيقيون
 // المرحلة 3: الرسائل الخاصة المحفوظة في D1 (30 يوماً) + غير المقروء + الرسائل المؤقتة
 // المرحلة 4: الأصدقاء + الإشعارات + التجاهل + التبليغ + خصوصية الخاص (كلها على الخادم)
+// المرحلة 5: تعديل وحذف الرسائل + التفاعلات + التثبيت + الاستطلاعات + الأوامر (/dice /me /poll) + حذف الخاص + فلترة المتجاهَلين في الخادم
 const NAME_OK = /^[\p{L}\p{M}\p{N}_\-. ]+$/u;
 const RESERVED = /(admin|owner|moderator|operator|ادمن|أدمن|مشرف|صاحب|مبرمج|سوبر)/i;
 const DAY = 864e5;
@@ -15,6 +16,20 @@ const TMP_OK = [30000, 3600000, 86400000]; // مدد الرسائل المؤقت
 const PM_HISTORY = 200;    // عدد رسائل الخاص المحمّلة عند الدخول
 const MAX_FRIENDS = 200;
 const MAX_IGNORES = 300;
+const EDIT_MS = 15 * 6e4;   // مهلة تعديل الرسالة
+const EMOJI = ['👍', '❤️', '😂', '😮', '😢'];
+const LVN = { visitor: 0, member: 1, rankmod: 2, roommod: 3, genmod: 4, super: 5, programmer: 6, owner: 7 };
+function lvOf(u) {
+  if (u.role === 'member') { const r = u.rank || 0; return r >= 98 ? 5 : r >= 91 ? 4 : r >= 90 ? 2 : 1; }
+  return LVN[u.role] || 0;
+}
+const pwOf = (u) => lvOf(u) * 100 + (u.role === 'member' ? (u.rank || 0) : 0);
+function canMod(a, t, min) {
+  if (a.id === t.id) return false;
+  if (a.role === 'owner') return true;
+  if (t.role === 'owner') return false;
+  return lvOf(a) >= min && pwOf(a) > pwOf(t);
+}
 const DEBUG = false;       // true يُظهر سبب خطأ الخادم للتشخيص فقط
 
 const json = (data, status = 200, headers = {}) =>
@@ -189,22 +204,50 @@ function ensureSchema(env) {
       env.DB.prepare('CREATE TABLE IF NOT EXISTS ignores(user_id INTEGER NOT NULL, target_id INTEGER NOT NULL, PRIMARY KEY(user_id,target_id))'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS user_prefs(user_id INTEGER PRIMARY KEY, pm TEXT NOT NULL DEFAULT \'all\')'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS user_reports(id INTEGER PRIMARY KEY AUTOINCREMENT, reporter_id INTEGER NOT NULL, target_id INTEGER NOT NULL, reason TEXT NOT NULL, ctx TEXT, ts INTEGER NOT NULL, done INTEGER NOT NULL DEFAULT 0)'),
-    ]).then(() => verifySchema(env)).catch((e) => { schemaP = null; throw e; });
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS reactions(scope TEXT NOT NULL, mid INTEGER NOT NULL, user_id INTEGER NOT NULL, emoji TEXT NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(scope,mid,user_id))'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS poll_votes(mid INTEGER NOT NULL, user_id INTEGER NOT NULL, opt INTEGER NOT NULL, PRIMARY KEY(mid,user_id))'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS pins(room TEXT PRIMARY KEY, mid INTEGER NOT NULL, text TEXT NOT NULL, by_id INTEGER NOT NULL, ts INTEGER NOT NULL)'),
+    ]).then(() => migrate(env)).then(() => verifySchema(env)).catch((e) => { schemaP = null; throw e; });
   }
   return schemaP;
 }
 
+// المرحلة 5: أعمدة جديدة تُضاف للجداول الموجودة (دون حذف أي بيانات)
+const MIG = {
+  messages: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['kind', 'TEXT'], ['pl', 'TEXT'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0']],
+  pms: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0'], ['del_from', 'INTEGER NOT NULL DEFAULT 0'], ['del_to', 'INTEGER NOT NULL DEFAULT 0']],
+};
+async function migrate(env) {
+  for (const t of Object.keys(MIG)) {
+    const cols = (await env.DB.prepare('PRAGMA table_info(' + t + ')').all()).results.map((c) => c.name);
+    for (const [c, ty] of MIG[t]) {
+      if (cols.includes(c)) continue;
+      try { await env.DB.prepare('ALTER TABLE ' + t + ' ADD COLUMN ' + c + ' ' + ty).run(); }
+      catch (e) { if (!/duplicate column/i.test(String(e && e.message || e))) throw e; }
+    }
+  }
+  await env.DB.batch([
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_messages_upd ON messages(room,upd)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_pms_upd ON pms(upd)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_react_mid ON reactions(scope,mid)'),
+    env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_votes_mid ON poll_votes(mid)'),
+  ]);
+}
+
 // يتحقق أن الجداول بالبنية المطلوبة (جدول قديم بنفس الاسم لا يُستبدل تلقائياً ويسبب أخطاء غامضة)
 const WANT = {
-  messages: ['id', 'room', 'user_id', 'uname', 'text', 'rn', 'rt', 'rid', 'ts'],
+  messages: ['id', 'room', 'user_id', 'uname', 'text', 'rn', 'rt', 'rid', 'ts', 'ed', 'del', 'kind', 'pl', 'orig', 'upd'],
   presence: ['user_id', 'room', 'ts'],
-  pms: ['id', 'from_id', 'to_id', 'text', 'rn', 'rt', 'rid', 'ts', 'exp', 'read_at'],
+  pms: ['id', 'from_id', 'to_id', 'text', 'rn', 'rt', 'rid', 'ts', 'exp', 'read_at', 'ed', 'del', 'orig', 'upd', 'del_from', 'del_to'],
   friendships: ['user_id', 'friend_id', 'ts'],
   friend_requests: ['from_id', 'to_id', 'ts'],
   notifications: ['id', 'user_id', 'ty', 'text', 'ref', 'ts', 'rd', 'done'],
   ignores: ['user_id', 'target_id'],
   user_prefs: ['user_id', 'pm'],
   user_reports: ['id', 'reporter_id', 'target_id', 'reason', 'ctx', 'ts', 'done'],
+  reactions: ['scope', 'mid', 'user_id', 'emoji', 'ts'],
+  poll_votes: ['mid', 'user_id', 'opt'],
+  pins: ['room', 'mid', 'text', 'by_id', 'ts'],
 };
 async function verifySchema(env) {
   for (const t of Object.keys(WANT)) {
@@ -225,16 +268,56 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM pms WHERE ts<? OR (exp IS NOT NULL AND exp<?)').bind(now - KEEP, now),
     env.DB.prepare('DELETE FROM notifications WHERE ts<?').bind(now - KEEP),
     env.DB.prepare('DELETE FROM friend_requests WHERE ts<?').bind(now - KEEP),
+    env.DB.prepare('DELETE FROM pms WHERE del_from=1 AND del_to=1'),
+    env.DB.prepare("DELETE FROM reactions WHERE (scope='r' AND mid NOT IN (SELECT id FROM messages)) OR (scope='p' AND mid NOT IN (SELECT id FROM pms))"),
+    env.DB.prepare('DELETE FROM poll_votes WHERE mid NOT IN (SELECT id FROM messages)'),
+    env.DB.prepare('DELETE FROM pins WHERE mid NOT IN (SELECT id FROM messages)'),
   ]);
 }
 
 const cleanText = (v) =>
   String(v || '').replace(/[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/g, '').replace(/\n{3,}/g, '\n\n').trim();
 
-const msgRow = (r) => ({
-  id: r.id, user_id: r.user_id, uname: r.uname, role: r.role || 'visitor', rank: r.rank || 0,
-  text: r.text, rn: r.rn, rt: r.rt, rid: r.rid, ts: r.ts,
-});
+const GONE = '🚫 تم حذف الرسالة';
+const IGN_SQL = 'SELECT target_id FROM ignores WHERE user_id=?';
+
+// يضيف التفاعلات (rx) لقائمة صفوف: scope = 'r' غرف، 'p' خاص
+async function attachRx(env, scope, rows) {
+  const ids = rows.filter((r) => !r.del).map((r) => r.id);
+  rows.forEach((r) => { r.rx = {}; });
+  if (!ids.length) return;
+  const rx = (await env.DB.prepare('SELECT mid,user_id,emoji FROM reactions WHERE scope=? AND mid IN (' + ids.map(() => '?').join(',') + ')')
+    .bind(scope, ...ids).all()).results;
+  const map = {};
+  rx.forEach((x) => { const m = map[x.mid] || (map[x.mid] = {}); (m[x.emoji] || (m[x.emoji] = [])).push(x.user_id); });
+  rows.forEach((r) => { r.rx = map[r.id] || {}; });
+}
+
+// يضيف نتائج الاستطلاعات (poll) لصفوف الغرف
+async function attachPolls(env, rows) {
+  const ps = rows.filter((r) => r.kind === 'poll' && !r.del);
+  if (!ps.length) return;
+  const vs = (await env.DB.prepare('SELECT mid,user_id,opt FROM poll_votes WHERE mid IN (' + ps.map(() => '?').join(',') + ')')
+    .bind(...ps.map((r) => r.id)).all()).results;
+  ps.forEach((r) => {
+    let opts = [];
+    try { opts = JSON.parse(r.pl) || []; } catch { opts = []; }
+    r.poll = { o: opts.map((t, i) => ({ t, v: vs.filter((x) => x.mid === r.id && x.opt === i).map((x) => x.user_id) })) };
+  });
+}
+
+const msgRow = (r, vlv) => {
+  const o = {
+    id: r.id, user_id: r.user_id, uname: r.uname, role: r.role || 'visitor', rank: r.rank || 0,
+    kind: r.kind || null, ts: r.ts, rx: r.rx || {},
+  };
+  if (r.del) { o.del = 1; o.text = ''; return o; }
+  o.text = r.text; o.rn = r.rn; o.rt = r.rt; o.rid = r.rid;
+  if (r.ed) o.ed = 1;
+  if (r.poll) o.poll = r.poll;
+  if (r.orig && vlv >= 5) o.o = r.orig;
+  return o;
+};
 
 async function poll(req, env, url) {
   const u = await currentUser(req, env);
@@ -242,7 +325,9 @@ async function poll(req, env, url) {
   const room = url.searchParams.get('room') || '';
   if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
   const after = parseInt(url.searchParams.get('after'), 10) || 0;
+  const ut = parseInt(url.searchParams.get('ut'), 10) || 0;
   const now = Date.now();
+  const vlv = lvOf(u);
 
   if (url.searchParams.get('hb') === '1') {
     await env.DB.prepare(
@@ -250,42 +335,72 @@ async function poll(req, env, url) {
     ).bind(u.id, room, now).run();
   }
 
-  const sel = 'SELECT m.id,m.user_id,m.uname,m.text,m.rn,m.rt,m.rid,m.ts,u.role,u.rank FROM messages m LEFT JOIN users u ON u.id=m.user_id ';
+  // المتجاهَلون لا تصل رسائلهم من الخادم أصلاً (يُفلتَر هنا وليس في المتصفح)
+  const sel = 'SELECT m.id,m.user_id,m.uname,m.text,m.rn,m.rt,m.rid,m.ts,m.kind,m.ed,m.del,m.pl,m.orig,u.role,u.rank FROM messages m LEFT JOIN users u ON u.id=m.user_id ';
+  const ign = ' AND m.user_id NOT IN (' + IGN_SQL + ') ';
   let msgs;
   if (after > 0) {
-    msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.id>? AND m.ts>? ORDER BY m.id LIMIT 100')
-      .bind(room, after, now - KEEP).all()).results;
+    msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.id>? AND m.ts>?' + ign + 'ORDER BY m.id LIMIT 100')
+      .bind(room, after, now - KEEP, u.id).all()).results;
   } else {
-    msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.ts>? ORDER BY m.id DESC LIMIT ' + HISTORY)
-      .bind(room, now - KEEP).all()).results.reverse();
+    msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.ts>?' + ign + 'ORDER BY m.id DESC LIMIT ' + HISTORY)
+      .bind(room, now - KEEP, u.id).all()).results.reverse();
   }
+  // رسائل قديمة تغيّرت (تعديل/حذف/تفاعل/تصويت) منذ آخر نبضة
+  let upd = [];
+  if (after > 0 && ut > 0) {
+    upd = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.id<=? AND m.upd>? AND m.ts>?' + ign + 'ORDER BY m.upd LIMIT 100')
+      .bind(room, after, ut, now - KEEP, u.id).all()).results;
+  }
+  const all = msgs.concat(upd);
+  await attachRx(env, 'r', all);
+  await attachPolls(env, all);
+
   const online = (await env.DB.prepare(
     'SELECT u.id,u.name,u.role,u.rank,u.age,u.gender,u.country,u.lang,u.created_at,p.room FROM presence p JOIN users u ON u.id=p.user_id WHERE p.ts>? ORDER BY p.ts DESC LIMIT 300'
   ).bind(now - ONLINE_MS).all()).results;
-  const out = { msgs: msgs.map(msgRow), online, now };
+  const pin = await env.DB.prepare('SELECT text FROM pins WHERE room=?').bind(room).first();
+  const out = { msgs: msgs.map((r) => msgRow(r, vlv)), upd: upd.map((r) => msgRow(r, vlv)), pin: pin ? pin.text : null, online, now };
   const paRaw = url.searchParams.get('pa');
-  if (paRaw !== null) out.pm = await pmFetch(env, u.id, parseInt(paRaw, 10) || 0, url.searchParams.get('pf') === '1', now);
+  if (paRaw !== null) out.pm = await pmFetch(env, u.id, parseInt(paRaw, 10) || 0, url.searchParams.get('pf') === '1', now, parseInt(url.searchParams.get('pu'), 10) || 0, vlv);
   const naRaw = url.searchParams.get('na');
   if (naRaw !== null) out.soc = await socFetch(env, u.id, parseInt(naRaw, 10) || 0, url.searchParams.get('sf') === '1', now);
   return json(out);
 }
 
 // ---------- المرحلة 3: الرسائل الخاصة ----------
-async function pmFetch(env, me, pa, first, now) {
-  const base = 'SELECT id,from_id,to_id,text,rn,rt,rid,ts,exp FROM pms WHERE (from_id=? OR to_id=?) AND ts>? AND (exp IS NULL OR exp>?) ';
-  let rows, unread = null;
+async function pmFetch(env, me, pa, first, now, pu, vlv) {
+  const cols = 'id,from_id,to_id,text,rn,rt,rid,ts,exp,ed,del,orig';
+  // يُستثنى: ما مسحتُه من عندي، ورسائل من أتجاهلهم
+  const base = 'SELECT ' + cols + ' FROM pms WHERE (from_id=? OR to_id=?) AND ts>? AND (exp IS NULL OR exp>?)' +
+    ' AND NOT (from_id=? AND del_from=1) AND NOT (to_id=? AND del_to=1)' +
+    ' AND NOT (to_id=? AND from_id IN (' + IGN_SQL + ')) ';
+  const bb = [me, me, now - KEEP, now, me, me, me, me];
+  let rows, upd = [], unread = null;
   if (first) {
-    rows = (await env.DB.prepare(base + 'ORDER BY id DESC LIMIT ' + PM_HISTORY)
-      .bind(me, me, now - KEEP, now).all()).results.reverse();
+    rows = (await env.DB.prepare(base + 'ORDER BY id DESC LIMIT ' + PM_HISTORY).bind(...bb).all()).results.reverse();
     const un = (await env.DB.prepare(
-      'SELECT from_id, COUNT(*) c FROM pms WHERE to_id=? AND read_at IS NULL AND ts>? AND (exp IS NULL OR exp>?) GROUP BY from_id'
-    ).bind(me, now - KEEP, now).all()).results;
+      'SELECT from_id, COUNT(*) c FROM pms WHERE to_id=? AND read_at IS NULL AND del=0 AND del_to=0 AND ts>? AND (exp IS NULL OR exp>?)' +
+      ' AND from_id NOT IN (' + IGN_SQL + ') GROUP BY from_id'
+    ).bind(me, now - KEEP, now, me).all()).results;
     unread = {};
     un.forEach((x) => { unread[x.from_id] = x.c; });
   } else {
-    rows = (await env.DB.prepare(base + 'AND id>? ORDER BY id LIMIT 100')
-      .bind(me, me, now - KEEP, now, pa).all()).results;
+    rows = (await env.DB.prepare(base + 'AND id>? ORDER BY id LIMIT 100').bind(...bb, pa).all()).results;
+    if (pu > 0) {
+      upd = (await env.DB.prepare(base + 'AND id<=? AND upd>? ORDER BY upd LIMIT 100').bind(...bb, pa, pu).all()).results;
+    }
   }
+  const all = rows.concat(upd);
+  await attachRx(env, 'p', all);
+  const clean = (r) => {
+    const o = { id: r.id, from_id: r.from_id, to_id: r.to_id, ts: r.ts, exp: r.exp, rx: r.rx || {} };
+    if (r.del) { o.del = 1; o.text = ''; return o; }
+    o.text = r.text; o.rn = r.rn; o.rt = r.rt; o.rid = r.rid;
+    if (r.ed) o.ed = 1;
+    if (r.orig && vlv >= 5) o.o = r.orig;
+    return o;
+  };
   const ids = new Set();
   rows.forEach((r) => ids.add(r.from_id === me ? r.to_id : r.from_id));
   if (unread) Object.keys(unread).forEach((k) => ids.add(parseInt(k, 10)));
@@ -296,7 +411,7 @@ async function pmFetch(env, me, pa, first, now) {
       'SELECT id,name,role,rank,age,gender,country,lang,created_at FROM users WHERE id IN (' + list.map(() => '?').join(',') + ')'
     ).bind(...list).all()).results;
   }
-  return { rows, peers, unread };
+  return { rows: rows.map(clean), upd: upd.map(clean), peers, unread };
 }
 
 async function pmSend(req, env) {
@@ -347,6 +462,21 @@ async function pmRead(req, env) {
   const peer = b ? parseInt(b.peer, 10) : 0;
   if (!peer) return json({ error: 'طلب غير صالح' }, 400);
   await env.DB.prepare('UPDATE pms SET read_at=? WHERE to_id=? AND from_id=? AND read_at IS NULL').bind(Date.now(), u.id, peer).run();
+  return json({ ok: true });
+}
+
+async function pmClear(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة' }, 401);
+  const b = await readBody(req);
+  const peer = b ? parseInt(b.peer, 10) : 0;
+  if (!peer) return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  // يُخفي المحادثة من عندي فقط، ويبقى الطرف الآخر محتفظاً بنسخته
+  await env.DB.batch([
+    env.DB.prepare('UPDATE pms SET del_from=1 WHERE from_id=? AND to_id=?').bind(u.id, peer),
+    env.DB.prepare('UPDATE pms SET del_to=1, read_at=COALESCE(read_at,?) WHERE to_id=? AND from_id=?').bind(now, u.id, peer),
+  ]);
   return json({ ok: true });
 }
 
@@ -513,6 +643,7 @@ async function reportUser(req, env) {
   return json({ ok: true });
 }
 
+// ---------- المرحلة 5: التفاعل مع الرسائل ----------
 async function postMsg(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
@@ -528,20 +659,169 @@ async function postMsg(req, env) {
   const r = await env.DB.prepare('SELECT COUNT(*) c FROM messages WHERE user_id=? AND ts>?').bind(u.id, now - 5000).first();
   if (r.c >= 4) return json({ error: 'أبطئ قليلاً، رسائلك كثيرة' }, 429);
 
+  // الأوامر: تُنفَّذ في الخادم (النرد عشوائي حقيقي، والاستطلاع للمشرفين فقط)
+  let kind = null, pl = null;
+  const cm = text.match(/^\/(dice|me|poll)(?:\s+([\s\S]*))?$/);
+  if (cm) {
+    const arg = (cm[2] || '').trim();
+    if (cm[1] === 'dice') {
+      kind = 'sys';
+      text = '🎲 ' + u.name + ' رمى النرد: ' + (1 + crypto.getRandomValues(new Uint32Array(1))[0] % 6);
+    } else if (cm[1] === 'me') {
+      if (!arg) return json({ error: 'اكتب نصاً بعد /me' }, 400);
+      kind = 'sys';
+      text = '* ' + u.name + ' ' + arg;
+    } else {
+      if (lvOf(u) < 3) return json({ error: 'أمر الاستطلاع للمشرفين فقط' }, 403);
+      const p = arg.split('|').map((x) => x.trim()).filter(Boolean);
+      if (p.length < 3) return json({ error: 'الصيغة: /poll السؤال | خيار1 | خيار2' }, 400);
+      kind = 'poll';
+      text = '📊 ' + p[0].slice(0, 120);
+      pl = JSON.stringify(p.slice(1, 6).map((x) => x.slice(0, 40)));
+    }
+  }
+
   let rn = null, rt = null, rid = null;
-  if (b.reply && typeof b.reply === 'object') {
+  if (!kind && b.reply && typeof b.reply === 'object') {
     rn = String(b.reply.n || '').slice(0, 16);
     rt = String(b.reply.t || '').slice(0, 60);
     rid = parseInt(b.reply.id, 10) || null;
     if (!rt) { rn = null; rt = null; rid = null; }
   }
-  const ins = await env.DB.prepare('INSERT INTO messages(room,user_id,uname,text,rn,rt,rid,ts) VALUES(?,?,?,?,?,?,?,?)')
-    .bind(room, u.id, u.name, text, rn, rt, rid, now).run();
+  const ins = await env.DB.prepare('INSERT INTO messages(room,user_id,uname,text,rn,rt,rid,ts,kind,pl,upd) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+    .bind(room, u.id, u.name, text, rn, rt, rid, now, kind, pl, 0).run();
   await env.DB.prepare(
     'INSERT INTO presence(user_id,room,ts) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET room=excluded.room, ts=excluded.ts'
   ).bind(u.id, room, now).run();
   await cleanup(env);
-  return json({ ok: true, id: ins.meta.last_row_id, ts: now });
+  return json({ ok: true, id: ins.meta.last_row_id, ts: now, kind });
+}
+
+// يجلب رسالة غرفة (scope r) أو خاص (scope p) مع بيانات صاحبها
+async function loadMsg(env, scope, id) {
+  if (scope === 'p') return await env.DB.prepare('SELECT id,from_id user_id,to_id,text,ts,del,NULL kind,NULL role,NULL rank FROM pms WHERE id=?').bind(id).first();
+  return await env.DB.prepare('SELECT m.id,m.user_id,m.room,m.text,m.ts,m.del,m.kind,u.role,u.rank FROM messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?').bind(id).first();
+}
+
+async function msgEdit(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const scope = b && b.scope === 'p' ? 'p' : 'r';
+  const text = cleanText(b && b.text);
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  if (!text) return json({ error: 'الرسالة فارغة' }, 400);
+  if (text.length > MAX_TEXT) return json({ error: 'الرسالة طويلة (الحد ' + MAX_TEXT + ' حرف)' }, 400);
+  const m = await loadMsg(env, scope, id);
+  if (!m || m.del) return json({ error: 'الرسالة غير موجودة' }, 404);
+  if (m.user_id !== u.id) return json({ error: 'لا يمكنك تعديل رسالة غيرك' }, 403);
+  if (m.kind) return json({ error: 'لا يمكن تعديل هذه الرسالة' }, 400);
+  const now = Date.now();
+  if (now - m.ts > EDIT_MS) return json({ error: 'انتهت مهلة التعديل (15 دقيقة)' }, 403);
+  if (m.text === text) return json({ ok: true });
+  const tb = scope === 'p' ? 'pms' : 'messages';
+  await env.DB.prepare('UPDATE ' + tb + ' SET text=?, ed=1, orig=COALESCE(orig,?), upd=? WHERE id=?').bind(text, m.text, now, id).run();
+  return json({ ok: true });
+}
+
+async function msgDelete(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const scope = b && b.scope === 'p' ? 'p' : 'r';
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  const m = await loadMsg(env, scope, id);
+  if (!m) return json({ error: 'الرسالة غير موجودة' }, 404);
+  if (m.del) return json({ ok: true });
+  if (m.user_id !== u.id) {
+    // الخاص: لصاحب الرسالة فقط. الغرف: مشرف أعلى رتبة (المستوى 2 فأعلى)
+    if (scope === 'p' || !canMod(u, { id: m.user_id, role: m.role || 'visitor', rank: m.rank || 0 }, 2)) {
+      return json({ error: 'غير مسموح لك بحذف هذه الرسالة' }, 403);
+    }
+  }
+  const now = Date.now();
+  const st = [];
+  if (scope === 'p') {
+    st.push(env.DB.prepare("UPDATE pms SET del=1, text='', rn=NULL, rt=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+  } else {
+    st.push(env.DB.prepare("UPDATE messages SET del=1, text='', rn=NULL, rt=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+    st.push(env.DB.prepare('DELETE FROM poll_votes WHERE mid=?').bind(id));
+    st.push(env.DB.prepare('DELETE FROM pins WHERE mid=?').bind(id));
+  }
+  st.push(env.DB.prepare('DELETE FROM reactions WHERE scope=? AND mid=?').bind(scope, id));
+  await env.DB.batch(st);
+  return json({ ok: true });
+}
+
+async function msgReact(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const scope = b && b.scope === 'p' ? 'p' : 'r';
+  const e = String((b && b.e) || '');
+  if (!id || !EMOJI.includes(e)) return json({ error: 'طلب غير صالح' }, 400);
+  const m = await loadMsg(env, scope, id);
+  if (!m || m.del) return json({ error: 'الرسالة غير موجودة' }, 404);
+  if (scope === 'p' && m.user_id !== u.id && m.to_id !== u.id) return json({ error: 'غير مسموح' }, 403);
+  if (m.kind === 'sys') return json({ error: 'لا تفاعل على هذه الرسالة' }, 400);
+  const now = Date.now();
+  const rc = await env.DB.prepare('SELECT COUNT(*) c FROM reactions WHERE user_id=? AND ts>?').bind(u.id, now - 10000).first();
+  if (rc.c >= 20) return json({ error: 'أبطئ قليلاً' }, 429);
+  const cur = await env.DB.prepare('SELECT emoji FROM reactions WHERE scope=? AND mid=? AND user_id=?').bind(scope, id, u.id).first();
+  const tb = scope === 'p' ? 'pms' : 'messages';
+  const st = [];
+  if (cur && cur.emoji === e) st.push(env.DB.prepare('DELETE FROM reactions WHERE scope=? AND mid=? AND user_id=?').bind(scope, id, u.id));
+  else st.push(env.DB.prepare('INSERT INTO reactions(scope,mid,user_id,emoji,ts) VALUES(?,?,?,?,?) ON CONFLICT(scope,mid,user_id) DO UPDATE SET emoji=excluded.emoji, ts=excluded.ts').bind(scope, id, u.id, e, now));
+  st.push(env.DB.prepare('UPDATE ' + tb + ' SET upd=? WHERE id=?').bind(now, id));
+  await env.DB.batch(st);
+  return json({ ok: true });
+}
+
+async function msgVote(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const opt = b ? parseInt(b.opt, 10) : -1;
+  if (!id || !(opt >= 0)) return json({ error: 'طلب غير صالح' }, 400);
+  const m = await env.DB.prepare('SELECT kind,del,pl FROM messages WHERE id=?').bind(id).first();
+  if (!m || m.del || m.kind !== 'poll') return json({ error: 'الاستطلاع غير موجود' }, 404);
+  let n = 0;
+  try { n = (JSON.parse(m.pl) || []).length; } catch { n = 0; }
+  if (opt >= n) return json({ error: 'خيار غير صالح' }, 400);
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO poll_votes(mid,user_id,opt) VALUES(?,?,?) ON CONFLICT(mid,user_id) DO UPDATE SET opt=excluded.opt').bind(id, u.id, opt),
+    env.DB.prepare('UPDATE messages SET upd=? WHERE id=?').bind(now, id),
+  ]);
+  return json({ ok: true });
+}
+
+async function pinSet(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (lvOf(u) < 3) return json({ error: 'التثبيت للمشرفين فقط' }, 403);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const m = id ? await env.DB.prepare('SELECT id,room,text,del,kind FROM messages WHERE id=?').bind(id).first() : null;
+  if (!m || m.del || m.kind === 'sys') return json({ error: 'الرسالة غير موجودة' }, 404);
+  await env.DB.prepare('INSERT INTO pins(room,mid,text,by_id,ts) VALUES(?,?,?,?,?) ON CONFLICT(room) DO UPDATE SET mid=excluded.mid, text=excluded.text, by_id=excluded.by_id, ts=excluded.ts')
+    .bind(m.room, m.id, m.text.slice(0, 300), u.id, Date.now()).run();
+  return json({ ok: true });
+}
+
+async function pinClear(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (lvOf(u) < 3) return json({ error: 'التثبيت للمشرفين فقط' }, 403);
+  const b = await readBody(req);
+  const room = String((b && b.room) || '');
+  if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
+  await env.DB.prepare('DELETE FROM pins WHERE room=?').bind(room).run();
+  return json({ ok: true });
 }
 
 async function logout(req, env) {
@@ -569,6 +849,8 @@ export default {
       if (req.method === 'POST' && url.pathname === '/api/logout') return await logout(req, env);
       const SOC_POST = { '/api/friend/request': friendRequest, '/api/friend/accept': friendAccept, '/api/friend/decline': friendDecline,
         '/api/friend/remove': friendRemove, '/api/notif/read': notifRead, '/api/ignore/set': ignoreSet, '/api/prefs/set': prefsSet, '/api/report': reportUser };
+      Object.assign(SOC_POST, { '/api/msg/edit': msgEdit, '/api/msg/delete': msgDelete, '/api/msg/react': msgReact, '/api/msg/vote': msgVote,
+        '/api/pin/set': pinSet, '/api/pin/clear': pinClear, '/api/pm/clear': pmClear });
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname]) {
         await ensureSchema(env);
         if (req.method === 'POST' && SOC_POST[url.pathname]) return await SOC_POST[url.pathname](req, env);
