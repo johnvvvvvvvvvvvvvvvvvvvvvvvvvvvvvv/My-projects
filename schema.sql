@@ -33,7 +33,13 @@ CREATE TABLE IF NOT EXISTS messages (
   uname TEXT NOT NULL,
   text TEXT NOT NULL,
   rn TEXT, rt TEXT, rid INTEGER,
-  ts INTEGER NOT NULL
+  ts INTEGER NOT NULL,
+  ed INTEGER,                         -- معدّلة
+  del INTEGER NOT NULL DEFAULT 0,     -- محذوفة (يبقى الصف ويُفرَّغ النص)
+  kind TEXT,                          -- فارغ = عادية | sys = أمر (/dice /me) | poll = استطلاع
+  pl TEXT,                            -- خيارات الاستطلاع JSON
+  orig TEXT,                          -- النص الأصلي قبل أول تعديل
+  upd INTEGER NOT NULL DEFAULT 0      -- وقت آخر تغيير (تعديل/حذف/تفاعل/تصويت)
 );
 CREATE INDEX IF NOT EXISTS idx_messages_room ON messages(room, id);
 CREATE INDEX IF NOT EXISTS idx_messages_ts ON messages(ts);
@@ -50,7 +56,13 @@ CREATE TABLE IF NOT EXISTS pms (
   rn TEXT, rt TEXT, rid INTEGER,
   ts INTEGER NOT NULL,
   exp INTEGER,      -- نهاية الرسالة المؤقتة (فارغ = عادية)
-  read_at INTEGER   -- وقت القراءة (فارغ = غير مقروءة)
+  read_at INTEGER,  -- وقت القراءة (فارغ = غير مقروءة)
+  ed INTEGER,
+  del INTEGER NOT NULL DEFAULT 0,
+  orig TEXT,
+  upd INTEGER NOT NULL DEFAULT 0,
+  del_from INTEGER NOT NULL DEFAULT 0,  -- مسحها المُرسِل من عنده
+  del_to INTEGER NOT NULL DEFAULT 0     -- مسحها المستلم من عنده
 );
 CREATE INDEX IF NOT EXISTS idx_pms_to ON pms(to_id, id);
 CREATE INDEX IF NOT EXISTS idx_pms_from ON pms(from_id, id);
@@ -99,3 +111,30 @@ CREATE TABLE IF NOT EXISTS user_reports (
   ts INTEGER NOT NULL,
   done INTEGER NOT NULL DEFAULT 0
 );
+
+-- المرحلة 5: التفاعلات والاستطلاعات والتثبيت
+CREATE TABLE IF NOT EXISTS reactions (
+  scope TEXT NOT NULL,                  -- r = غرفة | p = خاص
+  mid INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  emoji TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  PRIMARY KEY (scope, mid, user_id)     -- تفاعل واحد لكل مستخدم على كل رسالة
+);
+CREATE TABLE IF NOT EXISTS poll_votes (
+  mid INTEGER NOT NULL,
+  user_id INTEGER NOT NULL,
+  opt INTEGER NOT NULL,
+  PRIMARY KEY (mid, user_id)
+);
+CREATE TABLE IF NOT EXISTS pins (
+  room TEXT PRIMARY KEY,
+  mid INTEGER NOT NULL,
+  text TEXT NOT NULL,
+  by_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_messages_upd ON messages(room, upd);
+CREATE INDEX IF NOT EXISTS idx_pms_upd ON pms(upd);
+CREATE INDEX IF NOT EXISTS idx_react_mid ON reactions(scope, mid);
+CREATE INDEX IF NOT EXISTS idx_votes_mid ON poll_votes(mid);
