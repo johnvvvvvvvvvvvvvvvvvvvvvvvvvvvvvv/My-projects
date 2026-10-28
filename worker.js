@@ -12,12 +12,19 @@ const MAX_TEXT = 500;
 const HISTORY = 15;        // عدد الرسائل القديمة عند دخول الغرفة
 const TMP_OK = [30000, 3600000, 86400000]; // مدد الرسائل المؤقتة المسموحة: 30 ث، ساعة، يوم
 const PM_HISTORY = 200;    // عدد رسائل الخاص المحمّلة عند الدخول
+const DEBUG = true;        // مؤقت: يُظهر سبب خطأ الخادم. اجعله false بعد حل المشكلة
 
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
     status,
     headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
   });
+
+function serverError(e, where) {
+  console.error('ERR ' + where, (e && e.stack) || e);
+  const d = String((e && e.message) || e).slice(0, 200);
+  return json({ error: DEBUG ? 'خطأ في الخادم [' + where + ': ' + d + ']' : 'خطأ في الخادم' }, 500);
+}
 
 const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
 const rand = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
@@ -102,7 +109,7 @@ async function register(req, env, ip) {
     return json({ ok: true, owner: first }, 200, { 'set-cookie': cookie });
   } catch (e) {
     if (String(e).includes('UNIQUE')) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409);
-    return json({ error: 'خطأ في الخادم' }, 500);
+    return serverError(e, 'register');
   }
 }
 
@@ -152,7 +159,7 @@ async function guest(req, env, ip) {
       return json({ ok: true }, 200, { 'set-cookie': cookie });
     } catch (e) {
       if (String(e).includes('UNIQUE')) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409);
-      return json({ error: 'خطأ في الخادم' }, 500);
+      return serverError(e, 'guest');
     }
   }
   return json({ error: 'خطأ في الخادم' }, 500);
@@ -368,7 +375,7 @@ export default {
       }
       return json({ error: 'غير موجود' }, 404);
     } catch (e) {
-      return json({ error: 'خطأ في الخادم' }, 500);
+      return serverError(e, url.pathname);
     }
   },
 };
