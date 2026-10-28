@@ -55,3 +55,47 @@ CREATE TABLE IF NOT EXISTS pms (
 CREATE INDEX IF NOT EXISTS idx_pms_to ON pms(to_id, id);
 CREATE INDEX IF NOT EXISTS idx_pms_from ON pms(from_id, id);
 CREATE INDEX IF NOT EXISTS idx_pms_ts ON pms(ts);
+
+-- المرحلة 4: الأصدقاء والإشعارات والتجاهل والتبليغ والتفضيلات
+CREATE TABLE IF NOT EXISTS friendships (
+  user_id INTEGER NOT NULL,
+  friend_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL,
+  PRIMARY KEY (user_id, friend_id)      -- صف لكل اتجاه
+);
+CREATE TABLE IF NOT EXISTS friend_requests (
+  from_id INTEGER NOT NULL,
+  to_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL,
+  PRIMARY KEY (from_id, to_id)
+);
+CREATE INDEX IF NOT EXISTS idx_freq_to ON friend_requests(to_id);
+CREATE TABLE IF NOT EXISTS notifications (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  ty TEXT NOT NULL,                     -- req | friend | ...
+  text TEXT NOT NULL,
+  ref INTEGER,                          -- المستخدم المرتبط بالإشعار
+  ts INTEGER NOT NULL,
+  rd INTEGER NOT NULL DEFAULT 0,        -- مقروء
+  done INTEGER NOT NULL DEFAULT 0       -- تم التعامل معه (قبول/رفض)
+);
+CREATE INDEX IF NOT EXISTS idx_notif_user ON notifications(user_id, id);
+CREATE TABLE IF NOT EXISTS ignores (
+  user_id INTEGER NOT NULL,
+  target_id INTEGER NOT NULL,
+  PRIMARY KEY (user_id, target_id)
+);
+CREATE TABLE IF NOT EXISTS user_prefs (
+  user_id INTEGER PRIMARY KEY,
+  pm TEXT NOT NULL DEFAULT 'all'        -- all | friends | none : من يراسلني
+);
+CREATE TABLE IF NOT EXISTS user_reports (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  reporter_id INTEGER NOT NULL,
+  target_id INTEGER NOT NULL,
+  reason TEXT NOT NULL,
+  ctx TEXT,
+  ts INTEGER NOT NULL,
+  done INTEGER NOT NULL DEFAULT 0
+);
