@@ -305,8 +305,8 @@ if(m.u===me||(!isPM&&lv(me)>=2&&can(me,m.u,2)))it('🗑️ حذف',function(){ad
 if(!isPM&&lv(me)>=3)it('📌 تثبيت',function(){pins[room]=m.t;addLog(me.name+' ثبّت رسالة في '+room);drawPin()});
 mn.style.display='block';mn.style.top=Math.min(e.clientY,innerHeight-300)+'px';mn.style.left=Math.min(e.clientX,innerWidth-190)+'px'}
 function draw(){var b=$('msgs');b.textContent='';var pv=null,k=0;(hist[room]||[]).forEach(function(m){if(!shown(m))return;b.appendChild(mkMsg(m,0,k++,!!(pv&&!pv.s&&!m.s&&pv.u===m.u)));pv=m});b.scrollTop=b.scrollHeight;newc=0;dn();drawPin()}
-function post(r,u,text,sys,ex){var a=hist[r]=hist[r]||[],m={id:mid++,u:u,t:text,s:sys,ts:Date.now(),rx:{}};if(ex)for(var k in ex)m[k]=ex[k];if(u===me&&rp&&!rp.pm){m.q=rp;clearRp()}var pv=a[a.length-1];a.push(m);if(a.length>200)a.shift();
-if(u&&!sys){u.msgs=(u.msgs||0)+1;if(me&&u!==me&&text.indexOf('@'+me.name)>-1)notify('mention',u.name+' ذكرك في غرفة '+r)}
+function post(r,u,text,sys,ex){var a=hist[r]=hist[r]||[],m={id:mid++,u:u,t:text,s:sys,ts:Date.now(),rx:{}};if(ex)for(var k in ex)m[k]=ex[k];if(u===me&&rp&&!rp.pm&&!(ex&&ex.sid)){m.q=rp;clearRp()}var pv=a[a.length-1];a.push(m);if(a.length>200)a.shift();
+if(u&&!sys){u.msgs=(u.msgs||0)+1;if(me&&u!==me&&!(ex&&ex.old)&&text.indexOf('@'+me.name)>-1)notify('mention',u.name+' ذكرك في غرفة '+r)}
 if(r!==room||!shown(m))return m;var b=$('msgs'),near=b.scrollHeight-b.scrollTop-b.clientHeight<80||u===me;var x=mkMsg(m,0,b.children.length,!!(pv&&!pv.s&&!m.s&&pv.u===u));x.classList.add('in');b.appendChild(x);while(b.children.length>200)b.removeChild(b.firstChild);if(near)b.scrollTop=b.scrollHeight;else{newc++;dn()}return m}
 function drawUsers(){var a=$('users');a.textContent='';var h=el('div','u');h.style.cursor='default';h.appendChild(el('b','','المتصلون في '+room));var x=el('button','g','×');x.onclick=function(){drawer(false)};h.appendChild(x);a.appendChild(h);
 var i=el('input');i.placeholder='ابحث عن شخص...';i.value=uq;i.oninput=function(){uq=this.value;fillU()};a.appendChild(i);var l=el('div');l.id='uls';a.appendChild(l);fillU()}
@@ -338,9 +338,12 @@ m.style.display='block';m.style.top=Math.min(e.clientY,innerHeight-300)+'px';m.s
 function openPM(t){$('pf').style.display='none';if(lv(me)<1){alert('الزائر لا يستطيع إرسال رسائل خاصة. سجّل كعضو.');return}
 pm=t;unr[t.id]=0;nb();pms[t.id]=pms[t.id]||[];$('pt').textContent='خاص مع '+t.name;$('pn').style.display='grid';drawPM()}
 function drawPM(){var b=$('pb');b.textContent='';var pv=null;(pms[pm.id]||[]).forEach(function(m,i){b.appendChild(mkMsg(m,1,i,!!(pv&&pv.u===m.u)));pv=m});b.scrollTop=b.scrollHeight}
-function sendPM(){var v=$('pi').value.trim();if(!v||!pm)return;var m={id:mid++,u:me,t:v,ts:Date.now(),rx:{}};if(rp&&rp.pm){m.q=rp;clearRp()}(pms[pm.id]=pms[pm.id]||[]).push(m);$('pi').value='';drawPM();var t=pm;
-setTimeout(function(){if(!ign[t.id]&&pm===t)$('pt').textContent=t.name+' يكتب...'},500);
-setTimeout(function(){if(ign[t.id])return;(pms[t.id]=pms[t.id]||[]).push({id:mid++,u:t,t:'أهلاً! هذا رد تلقائي من '+t.name,ts:Date.now(),rx:{}});if(pm===t){$('pt').textContent='خاص مع '+t.name;drawPM()}else{unr[t.id]=(unr[t.id]||0)+1;nb();notify('pm','رسالة جديدة من '+t.name)}},2000)}
+function sendPM(){var v=$('pi').value.trim();if(!v||!pm)return;if(v.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');return}
+var t=pm,m={id:mid++,u:me,t:v,ts:Date.now(),rx:{}},tmp=(typeof TMP!=='undefined'&&TMP[t.id])||0,q=null;
+if(rp&&rp.pm){m.q=rp;q={id:rp.id,n:rp.n,t:rp.t};clearRp()}if(tmp)m.exp=Date.now()+tmp;
+(pms[t.id]=pms[t.id]||[]).push(m);$('pi').value='';if(typeof DR!=='undefined')DR[t.id]='';drawPM();NET.pend++;
+function fail(msg){NET.pend--;pms[t.id]=(pms[t.id]||[]).filter(function(x){return x!==m});if(pm===t)drawPM();toast('⚠️ '+msg)}
+api('pm/send',{to:t.id,text:v,exp:tmp,reply:q}).then(function(r){if(r.j&&r.j.ok){NET.pend--;m.sid=r.j.id;PN.seen[r.j.id]=1;if(r.j.exp)m.exp=r.j.exp}else fail((r.j&&r.j.error)||'تعذر الإرسال')},function(){fail('تعذر الاتصال بالخادم')})}
 function send(){var v=$('txt').value.trim();if(!v)return;if(isMuted(me)){post(room,0,'أنت مكتوم ولا تستطيع الكتابة',1);return}
 var now=Date.now(),md=rmode[room];if(lv(me)<3){if(md==='للقراءة فقط'){post(room,0,'الغرفة للقراءة فقط حالياً',1);return}if(md==='بطيء'&&now-(me.lt||0)<1e4){post(room,0,'الوضع بطيء: رسالة كل 10 ثوانٍ',1);return}}
 fl=fl.filter(function(x){return now-x<5000});if(fl.length>=4&&lv(me)<3){post(room,0,'أبطئ قليلاً، رسائلك كثيرة',1);return}fl.push(now);me.lt=now;$('txt').value='';grow();
@@ -348,7 +351,7 @@ var c=v.split(' ')[0];if(c==='/clear'){hist[room]=[];draw();return}
 if(c==='/dice'){post(room,0,'🎲 '+me.name+' رمى النرد: '+(1+Math.floor(Math.random()*6)),1);return}
 if(c==='/me'){post(room,0,'* '+me.name+' '+v.slice(4),1);return}
 if(c==='/poll'&&lv(me)>=3){var p=v.slice(6).split('|').map(function(x){return x.trim()}).filter(Boolean);if(p.length<3){post(room,0,'الصيغة: /poll السؤال | خيار1 | خيار2',1);return}post(room,me,'📊 '+p[0],0,{poll:{o:p.slice(1,6).map(function(t){return{t:t,v:[]}})}});return}
-post(room,me,v)}
+rsend(v)}
 var bots=['السلام عليكم','كيف حالكم اليوم؟','منور الشات','من وين الأخ؟','ما شاء الله','أهلاً وسهلاً بالجميع','الجو حلو اليوم'];
 var LM='in';
 function api(p,b){return fetch('/api/'+p,{method:b?'POST':'GET',credentials:'same-origin',headers:b?{'content-type':'application/json'}:{},body:b?JSON.stringify(b):undefined}).then(function(r){return r.json().then(function(j){return{s:r.status,j:j}},function(){return{s:r.status,j:{}}})})}
@@ -358,7 +361,7 @@ $('t_in').onclick=function(){lmode('in')};$('t_up').onclick=function(){lmode('up
 function enter(u){me={id:u.id,name:u.name,role:u.role,rank:u.rank||0,room:room,muted:false,c:CL[u.id%6],join:u.created_at||Date.now(),age:u.age,gender:u.gender||'-',country:u.country||'-',lang:u.lang||'-',msgs:0,gifts:[],conf:[]};
 users.push(me);$('login').style.display='none';$('app').style.display='grid';
 $('room').innerHTML='';ROOMS.forEach(function(x){var o=document.createElement('option');o.textContent=x;$('room').appendChild(o)});
-$('who').textContent=me.name+' · '+badge(me);post(room,0,'مرحباً '+me.name+' في غرفة '+room,1);drawUsers();drawPin();$('rb').textContent=room+' ▾'}
+$('who').textContent=me.name+' · '+badge(me);NET.sys='مرحباً '+me.name+' في غرفة '+room;drawUsers();drawPin();$('rb').textContent=room+' ▾';startNet()}
 $('go').onclick=function(){var e=$('lerr'),b=this;e.textContent='';var n=$('nick').value.trim(),p=$('pw').value,ag=parseInt($('age').value,10);
 if(!n){e.textContent='اكتب الاسم';return}if(LM!=='gu'&&!p){e.textContent='اكتب كلمة المرور';return}
 if(LM==='gu'&&!$('adc').checked){e.textContent='أكّد أن عمرك 18 سنة فما فوق';return}if(LM==='up'&&!(ag>=18)){e.textContent='الموقع للبالغين فقط (18 سنة فما فوق)';return}
@@ -366,7 +369,7 @@ var body={name:n,password:p,age:ag,adult:$('adc').checked,gender:$('gen').value,
 b.disabled=true;api({in:'login',up:'register',gu:'guest'}[LM],body).then(function(r){if(!r.j.ok){b.disabled=false;e.textContent=r.j.error||'تعذر الدخول';return}return api('me').then(function(m){b.disabled=false;if(m.j.user)enter(m.j.user);else e.textContent='تعذر قراءة الجلسة، تأكد أن الكوكيز مفعّلة'})},function(){b.disabled=false;e.textContent='تعذر الاتصال بالخادم'})};
 ['nick','pw','age'].forEach(function(i){$(i).onkeydown=function(ev){if(ev.key==='Enter')$('go').click()}});
 api('me').then(function(r){if(r.j&&r.j.user&&!me)enter(r.j.user)},function(){});
-$('room').onchange=function(){room=this.value;me.room=room;$('rb').textContent=room+' ▾';post(room,0,'دخلت غرفة '+room,1);draw();drawUsers()};
+$('room').onchange=function(){room=this.value;me.room=room;netReset();hist[room]=[];NET.sys='دخلت غرفة '+room;$('rb').textContent=room+' ▾';draw();drawUsers();pollNow()};
 $('send').onclick=send;$('txt').onkeydown=function(e){if(e.key==='Enter'&&!e.shiftKey&&!e.isComposing){e.preventDefault();send()}};$('txt').oninput=grow;
 $('ps').onclick=sendPM;$('pi').onkeydown=function(e){if(e.key==='Enter'&&!e.isComposing)sendPM()};$('px').onclick=function(){$('pn').style.display='none';pm=null};
 $('lx').onclick=function(){$('log').style.display='none'};
@@ -544,7 +547,7 @@ function today(){return fdate(Date.now())}
 function rollDay(){if(SH.day!==today()){SH.day=today();SH.cnt={msg:0,fr:0,rx:0};SH.done={};SH.claimed=0;saveSH()}}
 function tx(t){SH.tx.unshift(fdt(Date.now())+' — '+t);SH.tx=SH.tx.slice(0,30);saveSH()}
 function bump(k){rollDay();SH.cnt[k]=(SH.cnt[k]||0)+1;saveSH();TASKS.forEach(function(t){if(t.k===k&&SH.cnt[k]===t.g)toast('✅ أنجزت مهمة: '+t.n+' — اجمع مكافأتك من المتجر')})}
-var _po=post;post=function(r,u,t,s,ex){var m=_po(r,u,t,s,ex);if(me&&u===me&&!s)bump('msg');return m};
+var _po=post;post=function(r,u,t,s,ex){var m=_po(r,u,t,s,ex);if(me&&u===me&&!s&&!(ex&&ex.sid))bump('msg');return m};
 var _re=react;react=function(m,k){_re(m,k);bump('rx')};
 var _n2=notify;notify=function(ty,t,uid){if(ty==='friend'&&t.indexOf('قَبِل')>-1)bump('fr');_n2(ty,t,uid)};
 var _ap=applyPf;function applyEq(eq){eq=eq||SH.eq;_ap();if(!me)return;if(eq.theme)document.documentElement.setAttribute('data-theme',eq.theme);if(eq.bg)$('msgs').dataset.bg=eq.bg;me.baseC=me.baseC||me.c;me.c=eq.name||me.baseC;var s=$('bbst');if(!s){s=document.createElement('style');s.id='bbst';document.head.appendChild(s)}s.textContent=eq.bubble?'#msgs .m.me{background:'+eq.bubble+'!important;color:#fff}':'';if(!eq._t){draw();drawUsers()}}
@@ -968,6 +971,60 @@ var _cvW=centerView;centerView=function(){_cvW();if(!me||me.role!=='owner')retur
 
 nb();
 })();
+
+/* ===== المرحلة 2: الغرف العامة المحفوظة (D1) + المتصلون الحقيقيون ===== */
+var PN={pa:0,seen:{},first:1};
+var NET={last:0,seen:{},gen:0,pend:0,busy:0,hb:0,t:null,on:0,first:1,sys:null};
+function netReset(){NET.last=0;NET.seen={};NET.gen++;NET.first=1;NET.hb=0;NET.busy=0}
+function mkUser(o){var u=users.find(function(x){return x.id===o.id});
+if(!u){u={id:o.id,muted:false,c:CL[o.id%6],gifts:[],conf:[],msgs:0,room:null,join:Date.now()};users.push(u)}
+if(u===me)return u;
+u.name=o.name||u.name||'؟';u.role=o.role||u.role||'visitor';u.rank=o.rank||0;
+if(o.age!=null){u.age=o.age;u.gender=o.gender||'-';u.country=o.country||'-';u.lang=o.lang||'-'}
+if(o.created_at)u.join=o.created_at;return u}
+function applyOnline(list){var ids={};list.forEach(function(o){ids[o.id]=1;var u=mkUser(o);if(u!==me)u.room=o.room});
+users.forEach(function(u){if(u!==me&&!ids[u.id])u.room=null});if($('uls'))fillU()}
+function addRows(rows,old){rows.forEach(function(r){if(r.id>NET.last)NET.last=r.id;if(NET.seen[r.id])return;NET.seen[r.id]=1;
+var u=r.user_id===me.id?me:mkUser({id:r.user_id,name:r.uname,role:r.role,rank:r.rank});
+var ex={sid:r.id,ts:r.ts,old:old?1:0};if(r.rt)ex.q={n:r.rn,t:r.rt,id:r.rid};post(room,u,r.text,0,ex)})}
+function poll(){if(!me)return schedule();if(NET.busy||NET.pend>0)return schedule();
+NET.busy=1;var g=NET.gen,rm=room,hb=Date.now()-NET.hb>20000;
+api('poll?room='+encodeURIComponent(rm)+'&after='+NET.last+(hb?'&hb=1':'')+'&pa='+PN.pa+(PN.first?'&pf=1':'')).then(function(r){
+if(g!==NET.gen)return;NET.busy=0;
+if(rm!==room||NET.pend>0)return;
+if(r.s===401){toast('⚠️ انتهت الجلسة، أعد تحميل الصفحة');return}
+if(!r.j||!r.j.msgs)return;
+if(hb)NET.hb=Date.now();
+if(NET.first){NET.first=0;hist[rm]=[];draw();addRows(r.j.msgs,1);if(NET.sys){post(rm,0,NET.sys,1);NET.sys=null}}
+else addRows(r.j.msgs,0);
+applyOnline(r.j.online||[]);applyPM(r.j.pm)},function(){if(g===NET.gen)NET.busy=0}).then(schedule)}
+function schedule(){clearTimeout(NET.t);NET.t=setTimeout(poll,document.hidden?20000:4000)}
+function pollNow(){clearTimeout(NET.t);poll()}
+function startNet(){if(NET.on)return;NET.on=1;netReset();pollNow()}
+document.addEventListener('visibilitychange',function(){if(!document.hidden&&NET.on&&me)pollNow()});
+function rsend(v){if(v.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');$('txt').value=v;grow();return}
+var rm=room,m=post(rm,me,v);if(!m)return;
+var q=m.q?{id:m.q.id,n:m.q.n,t:m.q.t}:null;NET.pend++;
+function fail(msg){NET.pend--;hist[rm]=(hist[rm]||[]).filter(function(x){return x!==m});if(rm===room)draw();toast('⚠️ '+msg)}
+api('post',{room:rm,text:m.t,reply:q}).then(function(r){
+if(r.j&&r.j.ok){NET.pend--;m.sid=r.j.id;NET.seen[r.j.id]=1}else fail((r.j&&r.j.error)||'تعذر الإرسال')},
+function(){fail('تعذر الاتصال بالخادم')})}
+
+/* ===== المرحلة 3: الرسائل الخاصة المحفوظة (D1) ===== */
+function applyPM(d){if(!d||!me)return;var first=PN.first;
+(d.peers||[]).forEach(function(o){mkUser(o)});
+if(first&&d.unread){for(var k in d.unread)unr[k]=d.unread[k]}
+var open=0;
+(d.rows||[]).forEach(function(r){if(r.id>PN.pa)PN.pa=r.id;if(PN.seen[r.id])return;PN.seen[r.id]=1;
+var mine=r.from_id===me.id,pid=mine?r.to_id:r.from_id,p=users.find(function(x){return x.id===pid});if(!p)return;
+if(!mine&&(ign[pid]||ST.pm==='none'||(ST.pm==='friends'&&!fr[pid])))return;
+var m={id:mid++,u:mine?me:p,t:r.text,ts:r.ts,rx:{},sid:r.id};if(r.rt)m.q={n:r.rn,t:r.rt,id:r.rid,pm:true};if(r.exp)m.exp=r.exp;
+if(!mine&&!pms[pid]&&!fr[pid]&&ST.rq){(REQ[pid]=REQ[pid]||[]).push(m);if(!first)notify('pm','📩 طلب مراسلة من '+p.name);return}
+(pms[pid]=pms[pid]||[]).push(m);
+if(!mine&&!first){if(pm&&pm.id===pid){open=pid}else{unr[pid]=(unr[pid]||0)+1;notify('pm','رسالة جديدة من '+p.name)}}});
+PN.first=0;nb();
+if(open){drawPM();api('pm/read',{peer:open})}}
+var _opP=openPM;openPM=function(t){_opP(t);if(pm===t){unr[t.id]=0;nb();api('pm/read',{peer:t.id})}};
 </script>
 </body>
 </html>
