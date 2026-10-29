@@ -138,3 +138,60 @@ CREATE INDEX IF NOT EXISTS idx_messages_upd ON messages(room, upd);
 CREATE INDEX IF NOT EXISTS idx_pms_upd ON pms(upd);
 CREATE INDEX IF NOT EXISTS idx_react_mid ON reactions(scope, mid);
 CREATE INDEX IF NOT EXISTS idx_votes_mid ON poll_votes(mid);
+
+-- المرحلة 6أ: أساس الإدارة
+CREATE TABLE IF NOT EXISTS sanctions (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,             -- المعاقَب
+  kind TEXT NOT NULL,                   -- mute | kick | ban | revoke
+  room TEXT,                            -- للطرد فقط: الغرفة
+  reason TEXT,
+  by_id INTEGER NOT NULL,
+  by_name TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  until INTEGER,                        -- فارغ = دائم
+  active INTEGER NOT NULL DEFAULT 1,    -- 0 = رُفعت قبل وقتها أو استُبدلت
+  lifted_by INTEGER,
+  lifted_ts INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_sanc_user ON sanctions(user_id, kind, active);
+CREATE TABLE IF NOT EXISTS mod_log (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  actor_id INTEGER NOT NULL,
+  actor_name TEXT NOT NULL,
+  action TEXT NOT NULL,
+  target_id INTEGER,
+  target_name TEXT,
+  detail TEXT,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_modlog_ts ON mod_log(ts);
+
+-- 6ج: فهرس لاستعلام العقوبات الفعّالة (الكتم وسحب الصلاحيات) لكل المستخدمين
+CREATE INDEX IF NOT EXISTS idx_sanc_act ON sanctions(active, kind);
+-- kind في sanctions: mute | kick | ban | revoke | warn | move  (الحظر دائماً بمدة، ولا يوجد حظر دائم)
+
+-- المرحلة 6د: مشرف الغرفة وأوضاع الغرفة
+CREATE TABLE IF NOT EXISTS room_mods (
+  user_id INTEGER PRIMARY KEY,          -- غرفة واحدة لكل مشرف
+  room TEXT NOT NULL,
+  by_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS room_modes (
+  room TEXT PRIMARY KEY,                -- غياب الصف = عادي
+  mode TEXT NOT NULL,                   -- slow | ro
+  by_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL
+);
+
+-- المرحلة 6هـ: الملاحظات الإدارية السرية (للمشرفين فقط، لا تصل لصاحبها)
+CREATE TABLE IF NOT EXISTS mod_notes (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_id INTEGER NOT NULL,
+  by_id INTEGER NOT NULL,
+  by_name TEXT NOT NULL,
+  text TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notes_target ON mod_notes(target_id, id);
