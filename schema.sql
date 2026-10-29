@@ -195,3 +195,58 @@ CREATE TABLE IF NOT EXISTS mod_notes (
   ts INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_notes_target ON mod_notes(target_id, id);
+
+-- المرحلة 7أ: الملف الشخصي (الصورة والخلفية والنبذة والحالة)
+CREATE TABLE IF NOT EXISTS profiles (
+  user_id INTEGER PRIMARY KEY,
+  img TEXT,                             -- الصورة الشخصية JPEG بصيغة base64 (مصغّرة 256px)
+  cover TEXT,                           -- صورة الخلفية JPEG بصيغة base64 (مصغّرة 960x360)
+  bio TEXT NOT NULL DEFAULT '',         -- النبذة (حتى 60 حرفاً)
+  st TEXT NOT NULL DEFAULT 'متاح',      -- متاح | مشغول | بعيد
+  iv INTEGER NOT NULL DEFAULT 0,        -- نسخة الصورة الشخصية (وقت رفعها، 0 = لا صورة)
+  cv INTEGER NOT NULL DEFAULT 0,        -- نسخة الخلفية (0 = لا خلفية)
+  upd INTEGER NOT NULL DEFAULT 0        -- وقت آخر تعديل
+);
+
+-- المرحلة 7ب: الإعجابات (إعجاب واحد لكل شخص على كل ملف)
+CREATE TABLE IF NOT EXISTS likes (
+  user_id INTEGER NOT NULL,             -- المعجِب
+  target_id INTEGER NOT NULL,           -- صاحب الملف
+  ts INTEGER NOT NULL,
+  PRIMARY KEY (user_id, target_id)
+);
+CREATE INDEX IF NOT EXISTS idx_likes_target ON likes(target_id);
+
+-- المرحلة 7ج: الهدايا (الرمز والاسم يحدّدهما الخادم من رقم الهدية)
+CREATE TABLE IF NOT EXISTS gifts (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  to_id INTEGER NOT NULL,               -- المستلم
+  from_id INTEGER NOT NULL,             -- المُهدي (يُعرض اسمه الحالي)
+  gid INTEGER NOT NULL,                 -- رقم الهدية في قائمة GIFT_LIST بـ worker.js
+  ts INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_gifts_to ON gifts(to_id, id);
+CREATE INDEX IF NOT EXISTS idx_gifts_from ON gifts(from_id, ts);
+
+-- المرحلة 7د: الزيارات (صف لكل زائر على كل ملف، آخر زيارة) وتفضيلاتها
+CREATE TABLE IF NOT EXISTS visits (
+  target_id INTEGER NOT NULL,           -- صاحب الملف
+  visitor_id INTEGER NOT NULL,
+  ts INTEGER NOT NULL,                  -- آخر زيارة
+  PRIMARY KEY (target_id, visitor_id)
+);
+CREATE INDEX IF NOT EXISTS idx_visits_target ON visits(target_id, ts);
+CREATE TABLE IF NOT EXISTS visit_prefs (
+  user_id INTEGER PRIMARY KEY,
+  hv INTEGER NOT NULL DEFAULT 0,        -- 1 = يخفي زياراته
+  gh INTEGER NOT NULL DEFAULT 0         -- 1 = وضع الشبح (للإشراف فقط)
+);
+
+-- المرحلة 7هـ: الإعلانات (تصل كل المتصلين خلال مدة ظهورها، وتُحذف بعد يوم)
+CREATE TABLE IF NOT EXISTS announcements (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  by_id INTEGER NOT NULL,               -- المعلِن
+  text TEXT NOT NULL,                   -- حتى 200 حرف
+  dur INTEGER NOT NULL,                 -- مدة الظهور بالثواني (10 إلى 20)
+  ts INTEGER NOT NULL
+);
