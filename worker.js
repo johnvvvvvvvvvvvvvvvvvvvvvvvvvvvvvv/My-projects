@@ -268,12 +268,47 @@ function ensureSchema(env) {
 
 // المرحلة 5: أعمدة جديدة تُضاف للجداول الموجودة (دون حذف أي بيانات)
 const MIG = {
-  messages: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['kind', 'TEXT'], ['pl', 'TEXT'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0']],
-  visits: [['nts', 'INTEGER NOT NULL DEFAULT 0']],
-  ip_bans: [['target_id', 'INTEGER'], ['target_name', 'TEXT']],
-  mod_log: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
-  user_reports: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
-  pms: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0'], ['del_from', 'INTEGER NOT NULL DEFAULT 0'], ['del_to', 'INTEGER NOT NULL DEFAULT 0']],
+  messages: [
+    ['ed', 'INTEGER'],
+    ['del', 'INTEGER NOT NULL DEFAULT 0'],
+    ['kind', 'TEXT'],
+    ['pl', 'TEXT'],
+    ['orig', 'TEXT'],
+    ['upd', 'INTEGER NOT NULL DEFAULT 0']
+  ],
+
+  visits: [
+    ['nts', 'INTEGER NOT NULL DEFAULT 0']
+  ],
+
+  ip_bans: [
+    ['target_id', 'INTEGER'],
+    ['target_name', 'TEXT']
+  ],
+
+  watch_words: [
+    ['act', "TEXT NOT NULL DEFAULT 'delete'"],
+    ['by_id', 'INTEGER NOT NULL DEFAULT 0'],
+    ['by_name', "TEXT NOT NULL DEFAULT 'قديم'"],
+    ['ts', 'INTEGER NOT NULL DEFAULT 0']
+  ],
+
+  mod_log: [
+    ['hidden', 'INTEGER NOT NULL DEFAULT 0']
+  ],
+
+  user_reports: [
+    ['hidden', 'INTEGER NOT NULL DEFAULT 0']
+  ],
+
+  pms: [
+    ['ed', 'INTEGER'],
+    ['del', 'INTEGER NOT NULL DEFAULT 0'],
+    ['orig', 'TEXT'],
+    ['upd', 'INTEGER NOT NULL DEFAULT 0'],
+    ['del_from', 'INTEGER NOT NULL DEFAULT 0'],
+    ['del_to', 'INTEGER NOT NULL DEFAULT 0']
+  ]
 };
 async function migrate(env) {
   for (const t of Object.keys(MIG)) {
