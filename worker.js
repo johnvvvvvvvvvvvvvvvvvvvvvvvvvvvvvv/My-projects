@@ -7,6 +7,7 @@
 // المرحلة 6ب: الكتم والطرد والحظر (تُفرض عند الإرسال والدخول للغرفة وتسجيل الدخول)
 // المرحلة 6هـ: شاشة البلاغات + سجل الإجراءات + العقوبات الفعّالة + سجل عقوبات المستخدم + الملاحظات السرية + الإحصائيات (كلها من الخادم)
 // المرحلة 6د: مشرف الغرفة (room_mods) + أوضاع الغرفة (room_modes: عادي/بطيء/قراءة فقط) تُفرض في الخادم
+// المرحلة 6و: حظر الجهاز/IP (بمدة إلزامية وبلا سقف) + اقتراح الحظر + التظلّمات + الحسابات المرتبطة بالعنوان
 // المرحلة 6ج: التحذير + الرتب + سحب الصلاحيات + حذف رسائل مستخدم + إجبار تغيير الاسم + نقل لغرفة (لا حظر دائم: كل حظر بمدة)
 const NAME_OK = /^[\p{L}\p{M}\p{N}_\-. ]+$/u;
 const RESERVED = /(admin|owner|moderator|operator|ادمن|أدمن|مشرف|صاحب|مبرمج|سوبر)/i;
@@ -111,6 +112,9 @@ async function readBody(req) {
 async function register(req, env, ip) {
   const b = await readBody(req);
   if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  await ensureSchema(env);
+  const ibr = await ipBanned(env, ip, Date.now());
+  if (ibr) return json({ error: ipMsg(ibr, Date.now()) }, 403);
   const name = String(b.name || '').trim();
   const pass = String(b.password || '');
   const age = parseInt(b.age, 10);
@@ -155,7 +159,10 @@ async function login(req, env, ip) {
   }
   await ensureSchema(env);
   const bn = await activeSanction(env, u.id, 'ban', null, Date.now());
-  if (bn) return json({ error: sancMsg('ban', bn, Date.now()) }, 403);
+  if (bn) return json({ error: sancMsg('ban', bn, Date.now()), appeal: true }, 403);
+  // حظر الجهاز لا يسري على الإشراف (حتى لا يُقفل مشرف على شبكة مشتركة)
+  const ibl = await ipBanned(env, ip, Date.now());
+  if (ibl && u.role !== 'owner' && lvBase(u) < 2) return json({ error: ipMsg(ibl, Date.now()), appeal: true }, 403);
   await env.DB.prepare('UPDATE users SET last_ip=? WHERE id=?').bind(ip, u.id).run();
   const cookie = await startSession(env, u.id);
   return json({ ok: true }, 200, { 'set-cookie': cookie });
@@ -164,6 +171,9 @@ async function login(req, env, ip) {
 async function guest(req, env, ip) {
   const b = await readBody(req);
   if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  await ensureSchema(env);
+  const ibg = await ipBanned(env, ip, Date.now());
+  if (ibg) return json({ error: ipMsg(ibg, Date.now()) }, 403);
   const want = String(b.name || '').trim();
   if (b.adult !== true) return json({ error: 'الموقع للبالغين فقط (18 سنة فما فوق)' }, 400);
   if (want.length < 2 || want.length > 16) return json({ error: 'الاسم من 2 إلى 16 حرفاً' }, 400);
@@ -237,11 +247,21 @@ function ensureSchema(env) {
       env.DB.prepare('CREATE TABLE IF NOT EXISTS gifts(id INTEGER PRIMARY KEY AUTOINCREMENT, to_id INTEGER NOT NULL, from_id INTEGER NOT NULL, gid INTEGER NOT NULL, ts INTEGER NOT NULL)'),
       env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_gifts_to ON gifts(to_id,id)'),
       env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_gifts_from ON gifts(from_id,ts)'),
-      env.DB.prepare('CREATE TABLE IF NOT EXISTS visits(target_id INTEGER NOT NULL, visitor_id INTEGER NOT NULL, ts INTEGER NOT NULL, PRIMARY KEY(target_id,visitor_id))'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS visits(target_id INTEGER NOT NULL, visitor_id INTEGER NOT NULL, ts INTEGER NOT NULL, nts INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(target_id,visitor_id))'),
       env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_visits_target ON visits(target_id,ts)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS announcements(id INTEGER PRIMARY KEY AUTOINCREMENT, by_id INTEGER NOT NULL, text TEXT NOT NULL, dur INTEGER NOT NULL, ts INTEGER NOT NULL)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS visit_prefs(user_id INTEGER PRIMARY KEY, hv INTEGER NOT NULL DEFAULT 0, gh INTEGER NOT NULL DEFAULT 0)'),
-    ]).then(() => migrate(env)).then(() => verifySchema(env)).catch((e) => { schemaP = null; throw e; });
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS ip_bans(id INTEGER PRIMARY KEY AUTOINCREMENT, ip_hash TEXT NOT NULL, target_id INTEGER, target_name TEXT, reason TEXT, by_id INTEGER NOT NULL, by_name TEXT NOT NULL, ts INTEGER NOT NULL, until INTEGER NOT NULL, active INTEGER NOT NULL DEFAULT 1, lifted_by INTEGER, lifted_ts INTEGER)'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_ipban_h ON ip_bans(ip_hash,active)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS ban_props(id INTEGER PRIMARY KEY AUTOINCREMENT, target_id INTEGER NOT NULL, target_name TEXT NOT NULL, by_id INTEGER NOT NULL, by_name TEXT NOT NULL, reason TEXT NOT NULL, minutes INTEGER NOT NULL, kind TEXT NOT NULL, ts INTEGER NOT NULL, state INTEGER NOT NULL DEFAULT 0, rev_id INTEGER, rev_name TEXT, rev_ts INTEGER, rev_note TEXT)'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_props_state ON ban_props(state,id)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS appeals(id INTEGER PRIMARY KEY AUTOINCREMENT, user_id INTEGER NOT NULL, user_name TEXT NOT NULL, sanc_id INTEGER NOT NULL, sanc_kind TEXT NOT NULL, sanc_by TEXT, sanc_reason TEXT, sanc_until INTEGER, text TEXT NOT NULL, ts INTEGER NOT NULL, state INTEGER NOT NULL DEFAULT 0, rev_id INTEGER, rev_name TEXT, rev_ts INTEGER, rev_note TEXT)'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_appeals_state ON appeals(state,id)'),
+      env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_appeals_user ON appeals(user_id,ts)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS watch_words(id INTEGER PRIMARY KEY AUTOINCREMENT, word TEXT NOT NULL UNIQUE, act TEXT NOT NULL, by_id INTEGER NOT NULL, by_name TEXT NOT NULL, ts INTEGER NOT NULL)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS site_flags(k TEXT PRIMARY KEY, v INTEGER NOT NULL DEFAULT 0, by_id INTEGER, ts INTEGER)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS emergency(id INTEGER PRIMARY KEY CHECK(id=1), by_id INTEGER NOT NULL, by_name TEXT NOT NULL, ts INTEGER NOT NULL)'),
+    ]).then(() => migrate(env)).then(() => verifySchema(env)).then(() => wwSeed(env)).catch((e) => { schemaP = null; throw e; });
   }
   return schemaP;
 }
@@ -249,6 +269,9 @@ function ensureSchema(env) {
 // المرحلة 5: أعمدة جديدة تُضاف للجداول الموجودة (دون حذف أي بيانات)
 const MIG = {
   messages: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['kind', 'TEXT'], ['pl', 'TEXT'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0']],
+  visits: [['nts', 'INTEGER NOT NULL DEFAULT 0']],
+  mod_log: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
+  user_reports: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
   pms: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0'], ['del_from', 'INTEGER NOT NULL DEFAULT 0'], ['del_to', 'INTEGER NOT NULL DEFAULT 0']],
 };
 async function migrate(env) {
@@ -278,7 +301,7 @@ const WANT = {
   notifications: ['id', 'user_id', 'ty', 'text', 'ref', 'ts', 'rd', 'done'],
   ignores: ['user_id', 'target_id'],
   user_prefs: ['user_id', 'pm'],
-  user_reports: ['id', 'reporter_id', 'target_id', 'reason', 'ctx', 'ts', 'done'],
+  user_reports: ['id', 'reporter_id', 'target_id', 'reason', 'ctx', 'ts', 'done', 'hidden'],
   reactions: ['scope', 'mid', 'user_id', 'emoji', 'ts'],
   poll_votes: ['mid', 'user_id', 'opt'],
   pins: ['room', 'mid', 'text', 'by_id', 'ts'],
@@ -289,10 +312,16 @@ const WANT = {
   profiles: ['user_id', 'img', 'cover', 'bio', 'st', 'iv', 'cv', 'upd'],
   likes: ['user_id', 'target_id', 'ts'],
   gifts: ['id', 'to_id', 'from_id', 'gid', 'ts'],
-  visits: ['target_id', 'visitor_id', 'ts'],
+  visits: ['target_id', 'visitor_id', 'ts', 'nts'],
   announcements: ['id', 'by_id', 'text', 'dur', 'ts'],
   visit_prefs: ['user_id', 'hv', 'gh'],
-  mod_log: ['id', 'actor_id', 'actor_name', 'action', 'target_id', 'target_name', 'detail', 'ts'],
+  ip_bans: ['id', 'ip_hash', 'target_id', 'target_name', 'reason', 'by_id', 'by_name', 'ts', 'until', 'active', 'lifted_by', 'lifted_ts'],
+  ban_props: ['id', 'target_id', 'target_name', 'by_id', 'by_name', 'reason', 'minutes', 'kind', 'ts', 'state', 'rev_id', 'rev_name', 'rev_ts', 'rev_note'],
+  appeals: ['id', 'user_id', 'user_name', 'sanc_id', 'sanc_kind', 'sanc_by', 'sanc_reason', 'sanc_until', 'text', 'ts', 'state', 'rev_id', 'rev_name', 'rev_ts', 'rev_note'],
+  mod_log: ['id', 'actor_id', 'actor_name', 'action', 'target_id', 'target_name', 'detail', 'ts', 'hidden'],
+  emergency: ['id', 'by_id', 'by_name', 'ts'],
+  watch_words: ['id', 'word', 'act', 'by_id', 'by_name', 'ts'],
+  site_flags: ['k', 'v', 'by_id', 'ts'],
 };
 async function verifySchema(env) {
   for (const t of Object.keys(WANT)) {
@@ -320,13 +349,16 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM mod_log WHERE ts<?').bind(now - 3 * KEEP),
     env.DB.prepare('DELETE FROM visits WHERE ts<?').bind(now - KEEP),
     env.DB.prepare('DELETE FROM announcements WHERE ts<?').bind(now - DAY),
+    env.DB.prepare('DELETE FROM ip_bans WHERE (active=0 OR until<?) AND ts<?').bind(now, now - 3 * KEEP),
+    env.DB.prepare('DELETE FROM ban_props WHERE ts<?').bind(now - 3 * KEEP),
+    env.DB.prepare('DELETE FROM appeals WHERE ts<?').bind(now - 3 * KEEP),
     env.DB.prepare('DELETE FROM sanctions WHERE (active=0 OR (until IS NOT NULL AND until<?)) AND ts<?').bind(now, now - 3 * KEEP),
   ]);
 }
 
 // ---------- المرحلة 6أ: أساس الإدارة ----------
 // أدنى مستوى (lvOf) لكل إجراء. تُفحص كلها في الخادم، ولا قيمة لما يظهر في المتصفح.
-const MOD_MIN = { warn: 2, mute: 2, kick: 3, ban: 5, tempban: 4, revoke: 4, rank: 4, delmsg: 2, wipe: 4, rename: 4, move: 4, roommod: 5, roommode: 3, reports: 2, log: 3, note: 2, history: 2, stats: 4, shadow: 4, nopm: 4, slow: 4, delimg: 4 };
+const MOD_MIN = { warn: 2, mute: 2, kick: 3, ban: 5, tempban: 4, revoke: 4, rank: 4, delmsg: 2, wipe: 4, rename: 4, move: 4, roommod: 5, roommode: 3, emergency: 4, reports: 2, log: 3, note: 2, history: 2, stats: 4, shadow: 4, nopm: 4, slow: 4, delimg: 4, ipban: 5, propose: 2, propreview: 5, appeals: 4, linked: 5 };
 const SLOW_MS = 10000;        // الوضع البطيء: رسالة كل 10 ثوانٍ
 const ROOM_MODES = ['normal', 'slow', 'ro'];
 const WN = 3;                 // عدد التحذيرات قبل الكتم التلقائي
@@ -597,6 +629,14 @@ async function modDelMsgs(req, env, action) {
 }
 
 // إجبار تغيير الاسم: يُستبدل باسم عام فريد، ويُحدَّث اسمه في رسائله المحفوظة
+const RENAME_RIGHT = 7 * DAY;   // مهلة اختيار المُجبَر على تغيير اسمه لاسم جديد بنفسه
+function nameErr(n, allowReserved) {
+  if (n.length < 2 || n.length > 16) return 'الاسم من 2 إلى 16 حرفاً';
+  if (!NAME_OK.test(n)) return 'الاسم يقبل الحروف والأرقام و _ - . فقط';
+  if (!allowReserved && RESERVED.test(n)) return 'هذا الاسم محجوز';
+  return null;
+}
+// إجبار تغيير الاسم: بالاسم الذي يكتبه المشرف، أو (إن تُرك فارغاً) باسم عام عشوائي يحق لصاحبه استبداله مرة واحدة
 async function modRename(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
@@ -605,19 +645,68 @@ async function modRename(req, env) {
   const g = await modGuard(env, u, parseInt(b.target, 10) || 0, 'rename');
   if (g.res) return g.res;
   const t = g.t, now = Date.now();
+  const typed = cleanText(b.name).replace(/\s+/g, ' ');
   let nn = null;
-  for (let i = 0; i < 8 && !nn; i++) {
-    const c = 'مستخدم_' + (100 + crypto.getRandomValues(new Uint32Array(1))[0] % (i < 4 ? 900 : 90000));
-    if (!(await env.DB.prepare('SELECT 1 x FROM users WHERE name=?').bind(c).first())) nn = c;
+  if (typed) {
+    const er = nameErr(typed, u.role === 'owner');
+    if (er) return json({ error: er }, 400);
+    if (typed === t.name) return json({ error: 'هذا هو اسمه الحالي' }, 400);
+    const ex = await env.DB.prepare('SELECT id FROM users WHERE name=?').bind(typed).first();
+    if (ex && ex.id !== t.id) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409);
+    nn = typed;
+  } else {
+    for (let i = 0; i < 8 && !nn; i++) {
+      const c = 'مستخدم_' + (100 + crypto.getRandomValues(new Uint32Array(1))[0] % (i < 4 ? 900 : 90000));
+      if (!(await env.DB.prepare('SELECT 1 x FROM users WHERE name=?').bind(c).first())) nn = c;
+    }
+    if (!nn) return json({ error: 'تعذر توليد اسم، حاول مرة أخرى' }, 500);
   }
-  if (!nn) return json({ error: 'تعذر توليد اسم، حاول مرة أخرى' }, 500);
-  await env.DB.batch([
+  const st = [
     env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(nn, t.id),
     env.DB.prepare('UPDATE messages SET uname=? WHERE user_id=?').bind(nn, t.id),
-    logStmt(env, u, 'rename', t, t.name + ' ← ' + nn, now),
-    notifStmt(env, t.id, 'warn', 'تم تغيير اسمك إلى ' + nn + ' بواسطة ' + u.name + ' لمخالفته القواعد', null, now),
-  ]);
+    env.DB.prepare("UPDATE sanctions SET active=0, lifted_by=?, lifted_ts=? WHERE user_id=? AND kind='rename' AND active=1").bind(u.id, now, t.id),
+  ];
+  if (!typed) st.push(env.DB.prepare("INSERT INTO sanctions(user_id,kind,room,reason,by_id,by_name,ts,until) VALUES(?,'rename',NULL,'اختيار اسم جديد',?,?,?,?)").bind(t.id, u.id, u.name, now, now + RENAME_RIGHT));
+  st.push(logStmt(env, u, 'rename', t, t.name + ' ← ' + nn + (typed ? ' (اسم حدّده المشرف)' : ' (اسم عام)'), now));
+  st.push(notifStmt(env, t.id, 'warn', 'تم تغيير اسمك إلى ' + nn + ' بواسطة ' + u.name + ' لمخالفته القواعد' + (typed ? '' : ' — يمكنك اختيار اسم جديد من الإعدادات (عقوباتي) خلال 7 أيام'), null, now));
+  try { await env.DB.batch(st); }
+  catch (e) { if (String(e).includes('UNIQUE')) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409); throw e; }
   return json({ ok: true, name: nn });
+}
+
+// هل يحق لي اختيار اسم جديد الآن؟ (بعد إجبار تغيير عام)
+async function nameStatus(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const r = await env.DB.prepare("SELECT until FROM sanctions WHERE user_id=? AND kind='rename' AND active=1 AND until>? ORDER BY id DESC LIMIT 1").bind(u.id, Date.now()).first();
+  return json({ ok: true, pending: !!r, until: r ? r.until : null });
+}
+async function nameChange(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const nm = cleanText(b && b.name).replace(/\s+/g, ' '), now = Date.now();
+  const er = nameErr(nm, false);
+  if (er) return json({ error: er }, 400);
+  if (nm === u.name) return json({ error: 'هذا هو اسمك الحالي' }, 400);
+  const r = await env.DB.prepare("SELECT id FROM sanctions WHERE user_id=? AND kind='rename' AND active=1 AND until>? ORDER BY id DESC LIMIT 1").bind(u.id, now).first();
+  if (!r) return json({ error: 'لا يمكنك تغيير اسمك حالياً' }, 403);
+  const ex = await env.DB.prepare('SELECT id FROM users WHERE name=?').bind(nm).first();
+  if (ex && ex.id !== u.id) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409);
+  const c = await env.DB.prepare('UPDATE sanctions SET active=0, lifted_by=?, lifted_ts=? WHERE id=? AND active=1').bind(u.id, now, r.id).run();
+  if (!c.meta || !c.meta.changes) return json({ error: 'لا يمكنك تغيير اسمك حالياً' }, 403);
+  try {
+    await env.DB.batch([
+      env.DB.prepare('UPDATE users SET name=? WHERE id=?').bind(nm, u.id),
+      env.DB.prepare('UPDATE messages SET uname=? WHERE user_id=?').bind(nm, u.id),
+      logStmt(env, u, 'rename', { id: u.id, name: nm }, u.name + ' ← ' + nm + ' (اختاره بنفسه)', now),
+    ]);
+  } catch (e) {
+    await env.DB.prepare('UPDATE sanctions SET active=1, lifted_by=NULL, lifted_ts=NULL WHERE id=?').bind(r.id).run();
+    if (String(e).includes('UNIQUE')) return json({ error: 'الاسم مستخدم، اختر اسماً آخر' }, 409);
+    throw e;
+  }
+  return json({ ok: true, name: nm });
 }
 
 // نقل مستخدم متصل لغرفة أخرى (يصله عند أول فحص)
@@ -701,6 +790,285 @@ async function roomModeSet(req, env) {
   return json({ ok: true, room, mode });
 }
 
+// ---------- أدوات المالك: حذف سجل الإجراءات والبلاغات (صاحب الموقع فقط، ويُفحص هنا في الخادم) ----------
+// حذف سطر واحد لا يترك أثراً. الحذف الجماعي (بالمدة أو الكل) يترك سطراً واحداً في السجل يذكر ما حُذف وكم عدده.
+async function ownerGate(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return { res: json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401) };
+  if (u.role !== 'owner') return { res: json({ error: 'غير مسموح' }, 403) };
+  return { u };
+}
+
+async function ownerLogDel(req, env) {
+  const g = await ownerGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  if (b.id) {
+    const id = parseInt(b.id, 10);
+    if (!id) return json({ error: 'طلب غير صالح' }, 400);
+    const r = await env.DB.prepare('DELETE FROM mod_log WHERE id=?').bind(id).run();
+    return json({ ok: true, n: (r.meta && r.meta.changes) || 0 });
+  }
+  let r, note;
+  if (b.days) {
+    const d = parseInt(b.days, 10);
+    if (!(d >= 1 && d <= 3650)) return json({ error: 'المدة غير صالحة' }, 400);
+    r = await env.DB.prepare('DELETE FROM mod_log WHERE hidden=0 AND ts<?').bind(now - d * DAY).run();
+    note = 'أقدم من ' + d + ' يوماً';
+  } else if (b.all === true) {
+    r = await env.DB.prepare('DELETE FROM mod_log WHERE hidden=?').bind(b.h === true ? 1 : 0).run();
+    note = b.h === true ? 'كل المخفي' : 'كل السجل الظاهر';
+  } else return json({ error: 'طلب غير صالح' }, 400);
+  const n = (r.meta && r.meta.changes) || 0;
+  if (n) await logStmt(env, g.u, 'logwipe', null, 'مسح ' + n + ' سطراً (' + note + ')', now).run();
+  return json({ ok: true, n });
+}
+
+async function ownerReportDel(req, env) {
+  const g = await ownerGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  if (b.id) {
+    const id = parseInt(b.id, 10);
+    if (!id) return json({ error: 'طلب غير صالح' }, 400);
+    const r = await env.DB.prepare('DELETE FROM user_reports WHERE id=?').bind(id).run();
+    return json({ ok: true, n: (r.meta && r.meta.changes) || 0 });
+  }
+  let r, note;
+  if (b.done === true) {
+    r = await env.DB.prepare('DELETE FROM user_reports WHERE done=1 AND hidden=0').run();
+    note = 'المعالَجة';
+  } else if (b.all === true) {
+    r = await env.DB.prepare('DELETE FROM user_reports WHERE hidden=?').bind(b.h === true ? 1 : 0).run();
+    note = b.h === true ? 'كل المخفي' : 'كل البلاغات الظاهرة';
+  } else return json({ error: 'طلب غير صالح' }, 400);
+  const n = (r.meta && r.meta.changes) || 0;
+  if (n) await logStmt(env, g.u, 'reportwipe', null, 'حذف ' + n + ' بلاغاً (' + note + ')', now).run();
+  return json({ ok: true, n });
+}
+
+// الإخفاء بدل الحذف: يبقى الصف في القاعدة (hidden=1) ويختفي عن كل المشرفين ومن الإحصاءات، ويراه المالك وحده في «عرض المخفي» ويستطيع إظهاره.
+// الحذف الجماعي أعلاه لا يمس المخفي (إلا بطلب صريح h=true)، فالمخفي يُحذف وحده أو بزر «حذف المخفي نهائياً».
+async function ownerLogHide(req, env) {
+  const g = await ownerGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const v = b.on === false ? 0 : 1;
+  let r;
+  if (b.id) {
+    const id = parseInt(b.id, 10);
+    if (!id) return json({ error: 'طلب غير صالح' }, 400);
+    r = await env.DB.prepare('UPDATE mod_log SET hidden=? WHERE id=?').bind(v, id).run();
+  } else if (b.days && v) {
+    const d = parseInt(b.days, 10);
+    if (!(d >= 1 && d <= 3650)) return json({ error: 'المدة غير صالحة' }, 400);
+    r = await env.DB.prepare('UPDATE mod_log SET hidden=1 WHERE hidden=0 AND ts<?').bind(Date.now() - d * DAY).run();
+  } else if (b.all === true) {
+    r = await env.DB.prepare('UPDATE mod_log SET hidden=? WHERE hidden=?').bind(v, 1 - v).run();
+  } else return json({ error: 'طلب غير صالح' }, 400);
+  return json({ ok: true, n: (r.meta && r.meta.changes) || 0 });
+}
+
+async function ownerReportHide(req, env) {
+  const g = await ownerGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const v = b.on === false ? 0 : 1;
+  let r;
+  if (b.id) {
+    const id = parseInt(b.id, 10);
+    if (!id) return json({ error: 'طلب غير صالح' }, 400);
+    r = await env.DB.prepare('UPDATE user_reports SET hidden=? WHERE id=?').bind(v, id).run();
+  } else if (b.done === true && v) {
+    r = await env.DB.prepare('UPDATE user_reports SET hidden=1 WHERE hidden=0 AND done=1').run();
+  } else if (b.all === true) {
+    r = await env.DB.prepare('UPDATE user_reports SET hidden=? WHERE hidden=?').bind(v, 1 - v).run();
+  } else return json({ error: 'طلب غير صالح' }, 400);
+  return json({ ok: true, n: (r.meta && r.meta.changes) || 0 });
+}
+
+// ---------- الكلمات الممنوعة: فلترة رسائل الغرف في الخادم ----------
+// لكل كلمة إجراء واحد: delete (لا تُنشر الرسالة) | warn (لا تُنشر + تحذير، و3 تحذيرات = كتم) | mute (لا تُنشر + كتم 30 دقيقة).
+// المطابقة للكلمة كاملة بعد توحيد الهمزات وحذف التشكيل. المستوى 2 فأعلى مستثنون. التعديل للسوبر فما فوق، ويقفله صاحب الموقع على الجميع.
+const WW_ACTS = ['delete', 'warn', 'mute'];          // الترتيب = الشدة (إن طابقت رسالة أكثر من كلمة يُطبَّق الأشد)
+const WW_ACT_AR = { delete: 'حذف', warn: 'تحذير', mute: 'كتم' };
+const WW_EDIT_MIN = 5;                               // أدنى مستوى لتعديل القائمة
+const WW_EXEMPT_LV = 2;                              // من مستواه 2 فأعلى لا تُفحص رسائله
+const WW_MAX = 200, WW_MIN_LEN = 2, WW_MAX_LEN = 30;
+const WW_SEED = ['سب', 'شتم'];                       // كلمات الحماية التلقائية القديمة (كانت في المتصفح)، تُضاف مرة واحدة
+const SYS_ACTOR = { id: 0, name: 'النظام' };
+const WW_LET = '\\u0621-\\u064A\\u0660-\\u0669A-Za-z0-9_';
+const wwNorm = (s) => String(s || '').replace(/[\u064B-\u065F\u0670\u0640]/g, '').replace(/[أإآ]/g, 'ا').toLowerCase().replace(/\s+/g, ' ').trim();
+const wwRegex = (w) => new RegExp('(^|[^' + WW_LET + '])' + wwNorm(w).replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '(?![' + WW_LET + '])');
+
+async function wwSeed(env) {
+  try {
+    const now = Date.now();
+    const r = await env.DB.prepare("INSERT OR IGNORE INTO site_flags(k,v,by_id,ts) VALUES('ww_seeded',1,0,?)").bind(now).run();
+    if (r.meta && r.meta.changes) {
+      await env.DB.batch(WW_SEED.map((w) => env.DB.prepare("INSERT OR IGNORE INTO watch_words(word,act,by_id,by_name,ts) VALUES(?,'delete',0,'النظام',?)").bind(wwNorm(w), now)));
+    }
+  } catch (e) { console.error('ERR wwSeed', (e && e.stack) || e); }
+}
+
+// ترجع أشد كلمة مطابقة (أو null). تُستدعى من postMsg قبل حفظ الرسالة
+async function wwCheck(env, u, text) {
+  if (lvOf(u) >= WW_EXEMPT_LV) return null;
+  const rows = (await env.DB.prepare('SELECT word,act FROM watch_words LIMIT 300').all()).results;
+  if (!rows.length) return null;
+  const n = wwNorm(text);
+  let hit = null;
+  for (const r of rows) {
+    if (!wwRegex(r.word).test(n)) continue;
+    if (!hit || WW_ACTS.indexOf(r.act) > WW_ACTS.indexOf(hit.act)) hit = r;
+  }
+  return hit;
+}
+
+// تنفيذ الإجراء. الرسالة لا تُحفظ في الحالات الثلاث. الكلمة نفسها لا تُكشف لصاحب الرسالة (سبب عام) وتُسجَّل في سجل الإدارة
+async function wwApply(env, u, h, now) {
+  const reason = 'كلمة ممنوعة';
+  const hitLog = logStmt(env, SYS_ACTOR, 'ww_hit', u, WW_ACT_AR[h.act] + ' | ' + h.word, now);
+  if (h.act === 'mute') {
+    await env.DB.batch([
+      ...sanctionStmts(env, SYS_ACTOR, u, 'mute', null, reason, now + AUTO_MUTE, now),
+      notifStmt(env, u.id, 'warn', 'تم كتمك ' + AUTO_MUTE / 6e4 + ' دقيقة بسبب كلمة ممنوعة', null, now),
+      hitLog,
+    ]);
+    return json({ error: 'رسالتك تحتوي كلمة ممنوعة — تم كتمك ' + AUTO_MUTE / 6e4 + ' دقيقة' }, 403);
+  }
+  if (h.act === 'warn') {
+    const c = await env.DB.prepare("SELECT COUNT(*) c FROM sanctions WHERE user_id=? AND kind='warn' AND active=1 AND until>?").bind(u.id, now).first();
+    const n = c.c + 1, auto = n >= WN;
+    const st = [
+      env.DB.prepare("INSERT INTO sanctions(user_id,kind,room,reason,by_id,by_name,ts,until) VALUES(?,'warn',NULL,?,?,?,?,?)").bind(u.id, reason, SYS_ACTOR.id, SYS_ACTOR.name, now, now + WARN_KEEP),
+      logStmt(env, SYS_ACTOR, 'warn', u, n + '/' + WN + ' | ' + reason, now),
+      hitLog,
+    ];
+    if (auto) {
+      st.push(env.DB.prepare("UPDATE sanctions SET active=0, lifted_by=?, lifted_ts=? WHERE user_id=? AND kind='warn' AND active=1").bind(SYS_ACTOR.id, now, u.id));
+      st.push(...sanctionStmts(env, SYS_ACTOR, u, 'mute', null, 'تحذيرات متكررة', now + AUTO_MUTE, now));
+    }
+    st.push(notifStmt(env, u.id, 'warn', 'تحذير من ' + SYS_ACTOR.name + ': ' + reason + ' (' + n + '/' + WN + ')' + (auto ? ' — تم كتمك ' + AUTO_MUTE / 6e4 + ' دقيقة' : ''), null, now));
+    await env.DB.batch(st);
+    return json({ error: 'رسالتك تحتوي كلمة ممنوعة — تحذير ' + (auto ? WN : n) + '/' + WN + (auto ? ' وتم كتمك ' + AUTO_MUTE / 6e4 + ' دقيقة' : '') }, 403);
+  }
+  await hitLog.run();
+  return json({ error: 'رسالتك تحتوي كلمة ممنوعة ولم تُرسل' }, 403);
+}
+
+async function wwGate(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return { res: json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401) };
+  if (lvOf(u) < WW_EDIT_MIN) return { res: json({ error: 'غير مسموح' }, 403) };
+  return { u };
+}
+async function wwLocked(env) {
+  const r = await env.DB.prepare("SELECT v FROM site_flags WHERE k='ww_lock'").first();
+  return !!(r && r.v);
+}
+// قفل المالك: عند تفعيله لا يستطيع أحد غير صاحب الموقع إضافة كلمة أو تغيير إجرائها أو حذفها
+async function wwEditOk(env, u) {
+  return u.role === 'owner' || !(await wwLocked(env));
+}
+
+async function wwList(req, env) {
+  const g = await wwGate(req, env);
+  if (g.res) return g.res;
+  const words = (await env.DB.prepare('SELECT id,word,act FROM watch_words ORDER BY id DESC LIMIT 300').all()).results;
+  const lock = await wwLocked(env);
+  const owner = g.u.role === 'owner';
+  return json({ ok: true, words, lock, owner, edit: owner || !lock });
+}
+
+// إضافة كلمة أو تغيير إجرائها (الكلمة فريدة)
+async function wwSave(req, env) {
+  const g = await wwGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  if (!(await wwEditOk(env, g.u))) return json({ error: 'تعديل القائمة مغلق من صاحب الموقع' }, 403);
+  const word = wwNorm(cleanText(b.word)), act = String(b.act || '');
+  if (!WW_ACTS.includes(act)) return json({ error: 'اختر الإجراء' }, 400);
+  if (word.length < WW_MIN_LEN || word.length > WW_MAX_LEN) return json({ error: 'الكلمة من ' + WW_MIN_LEN + ' إلى ' + WW_MAX_LEN + ' حرفاً' }, 400);
+  const ex = await env.DB.prepare('SELECT act FROM watch_words WHERE word=?').bind(word).first();
+  if (!ex) {
+    const c = await env.DB.prepare('SELECT COUNT(*) c FROM watch_words').first();
+    if (c.c >= WW_MAX) return json({ error: 'وصلت للحد الأقصى (' + WW_MAX + ' كلمة)' }, 400);
+  }
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO watch_words(word,act,by_id,by_name,ts) VALUES(?,?,?,?,?) ON CONFLICT(word) DO UPDATE SET act=excluded.act, by_id=excluded.by_id, by_name=excluded.by_name, ts=excluded.ts')
+      .bind(word, act, g.u.id, g.u.name, now),
+    logStmt(env, g.u, 'ww_save', null, (ex ? 'تعديل' : 'إضافة') + ' | ' + word + ' ← ' + WW_ACT_AR[act], now),
+  ]);
+  return json({ ok: true });
+}
+
+async function wwDel(req, env) {
+  const g = await wwGate(req, env);
+  if (g.res) return g.res;
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  if (!(await wwEditOk(env, g.u))) return json({ error: 'تعديل القائمة مغلق من صاحب الموقع' }, 403);
+  const w = await env.DB.prepare('SELECT word FROM watch_words WHERE id=?').bind(id).first();
+  if (!w) return json({ ok: true });
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM watch_words WHERE id=?').bind(id),
+    logStmt(env, g.u, 'ww_del', null, w.word, Date.now()),
+  ]);
+  return json({ ok: true });
+}
+
+// المنع الجماعي: لصاحب الموقع فقط
+async function wwLock(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (u.role !== 'owner') return json({ error: 'غير مسموح' }, 403);
+  const b = await readBody(req);
+  if (!b || typeof b.on !== 'boolean') return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO site_flags(k,v,by_id,ts) VALUES('ww_lock',?,?,?) ON CONFLICT(k) DO UPDATE SET v=excluded.v, by_id=excluded.by_id, ts=excluded.ts").bind(b.on ? 1 : 0, u.id, now),
+    logStmt(env, u, 'ww_lock', null, b.on ? 'إغلاق التعديل على الجميع' : 'فتح التعديل', now),
+  ]);
+  return json({ ok: true, lock: b.on });
+}
+
+// وضع الطوارئ: صف واحد في الجدول emergency. وجوده = كل الغرف للقراءة فقط لمن مستواه أقل من MOD_MIN.emergency.
+// يملك الصلاحية المستوى 4 فأعلى (مشرف عام وما فوق)، وهم وحدهم يستمرون بالكتابة أثناءه. لا يمس room_modes، فعند الإنهاء تعود أوضاع الغرف كما كانت.
+async function emergencySet(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (lvOf(u) < MOD_MIN.emergency) return json({ error: 'لا تملك صلاحية وضع الطوارئ' }, 403);
+  const b = await readBody(req);
+  if (!b || typeof b.on !== 'boolean') return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  const cur = await env.DB.prepare('SELECT ts FROM emergency WHERE id=1').first();
+  if (b.on && !cur) {
+    await env.DB.batch([
+      env.DB.prepare('INSERT OR IGNORE INTO emergency(id,by_id,by_name,ts) VALUES(1,?,?,?)').bind(u.id, u.name, now),
+      logStmt(env, u, 'emergency', null, 'تفعيل وضع الطوارئ', now),
+    ]);
+    return json({ ok: true, emg: { on: true, ts: now } });
+  }
+  if (!b.on && cur) {
+    await env.DB.batch([
+      env.DB.prepare('DELETE FROM emergency WHERE id=1'),
+      logStmt(env, u, 'emergency', null, 'إنهاء وضع الطوارئ', now),
+    ]);
+    return json({ ok: true, emg: null });
+  }
+  return json({ ok: true, emg: cur ? { on: true, ts: cur.ts } : null });
+}
+
 // ---------- المرحلة 6هـ: البلاغات والسجل والعقوبات الفعّالة والملاحظات ----------
 const likeArg = (q) => '%' + String(q || '').slice(0, 40).replace(/[\\%_]/g, (c) => '\\' + c) + '%';
 const LK = " ESCAPE '\\'";
@@ -720,10 +1088,11 @@ async function modReports(req, env, url) {
   const q = (url.searchParams.get('q') || '').trim();
   const before = parseInt(url.searchParams.get('before'), 10) || 0;
   const w = [], a = [];
+  w.push(g.u.role === 'owner' && url.searchParams.get('h') === '1' ? 'r.hidden=1' : 'r.hidden=0');
   if (st === 'open') w.push('r.done=0'); else if (st === 'done') w.push('r.done=1');
   if (q) { w.push('(r.reason LIKE ?' + LK + ' OR tu.name LIKE ?' + LK + ' OR ru.name LIKE ?' + LK + ')'); const l = likeArg(q); a.push(l, l, l); }
   if (before) { w.push('r.id<?'); a.push(before); }
-  const rows = (await env.DB.prepare('SELECT r.id,r.reason,r.ctx,r.ts,r.done,r.reporter_id,r.target_id,ru.name rname,tu.name tname,(SELECT COUNT(*) FROM user_reports x WHERE x.target_id=r.target_id AND x.done=0) open_n FROM user_reports r LEFT JOIN users ru ON ru.id=r.reporter_id LEFT JOIN users tu ON tu.id=r.target_id'
+  const rows = (await env.DB.prepare('SELECT r.id,r.reason,r.ctx,r.ts,r.done,r.reporter_id,r.target_id,ru.name rname,tu.name tname,(SELECT COUNT(*) FROM user_reports x WHERE x.target_id=r.target_id AND x.done=0 AND x.hidden=0) open_n FROM user_reports r LEFT JOIN users ru ON ru.id=r.reporter_id LEFT JOIN users tu ON tu.id=r.target_id'
     + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY r.id DESC LIMIT 51').bind(...a).all()).results;
   return json({ rows: rows.slice(0, 50), more: rows.length > 50 });
 }
@@ -750,6 +1119,7 @@ async function modLogList(req, env, url) {
   const q = (url.searchParams.get('q') || '').trim();
   const before = parseInt(url.searchParams.get('before'), 10) || 0;
   const w = [], a = [];
+  w.push(g.u.role === 'owner' && url.searchParams.get('h') === '1' ? 'hidden=1' : 'hidden=0');
   if (q) { w.push('(actor_name LIKE ?' + LK + ' OR target_name LIKE ?' + LK + ' OR action LIKE ?' + LK + ' OR detail LIKE ?' + LK + ')'); const l = likeArg(q); a.push(l, l, l, l); }
   if (before) { w.push('id<?'); a.push(before); }
   const rows = (await env.DB.prepare('SELECT id,actor_name,action,target_id,target_name,detail,ts FROM mod_log' + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY id DESC LIMIT 51').bind(...a).all()).results;
@@ -764,13 +1134,20 @@ async function modSanctions(req, env, url) {
   const q = (url.searchParams.get('q') || '').trim();
   const rows = (await env.DB.prepare("SELECT s.id,s.user_id,s.kind,s.room,s.reason,s.by_id,s.by_name,s.ts,s.until,t.name uname,t.role trole,t.rank trank,b.role brole,b.rank brank FROM sanctions s LEFT JOIN users t ON t.id=s.user_id LEFT JOIN users b ON b.id=s.by_id WHERE s.active=1 AND s.kind IN ('mute','kick','ban','revoke','shadow','nopm','slow') AND (s.until IS NULL OR s.until>?)"
     + (q ? ' AND t.name LIKE ?' + LK : '') + ' ORDER BY s.id DESC LIMIT 100').bind(...(q ? [now, likeArg(q)] : [now])).all()).results;
+  let ipRows = [];
+  if (lvOf(u) >= MOD_MIN.ipban) {
+    const ir = (await env.DB.prepare('SELECT i.id,i.target_id,i.target_name,i.reason,i.by_id,i.by_name,i.ts,i.until,b.role brole,b.rank brank FROM ip_bans i LEFT JOIN users b ON b.id=i.by_id WHERE i.active=1 AND i.until>?'
+      + (q ? ' AND i.target_name LIKE ?' + LK : '') + ' ORDER BY i.id DESC LIMIT 50').bind(...(q ? [now, likeArg(q)] : [now])).all()).results;
+    ipRows = ir.map((x) => ({ id: x.id, uid: x.target_id, uname: x.target_name || '؟', kind: 'ipban', room: null, reason: x.reason || '', by: x.by_name, ts: x.ts, until: x.until >= 8e15 ? null : x.until,
+      can: u.role === 'owner' || x.by_id === u.id || !x.brole || pwOf(u) >= pwOf({ role: x.brole, rank: x.brank || 0 }) }));
+  }
   return json({
     rows: rows.map((x) => {
       const min = MOD_MIN[x.kind === 'ban' ? 'tempban' : x.kind];
       const can = lvOf(u) >= min && canMod(u, { id: x.user_id, role: x.trole || 'visitor', rank: x.trank || 0 }, min)
         && (u.role === 'owner' || x.by_id === u.id || !x.brole || pwOf(u) >= pwOf({ role: x.brole, rank: x.brank || 0 }));
       return { id: x.id, uid: x.user_id, uname: x.uname || '؟', kind: x.kind, room: x.room, reason: x.reason || '', by: x.by_name, ts: x.ts, until: x.until, can };
-    }),
+    }).concat(ipRows),
   });
 }
 
@@ -784,7 +1161,7 @@ async function modHistory(req, env, url) {
   const r = await env.DB.batch([
     env.DB.prepare('SELECT kind,room,reason,by_name,ts,until,active FROM sanctions WHERE user_id=? ORDER BY id DESC LIMIT 50').bind(t.id),
     env.DB.prepare('SELECT id,by_name,text,ts FROM mod_notes WHERE target_id=? ORDER BY id DESC LIMIT 50').bind(t.id),
-    env.DB.prepare('SELECT COUNT(*) total, SUM(CASE WHEN done=0 THEN 1 ELSE 0 END) open_n FROM user_reports WHERE target_id=?').bind(t.id),
+    env.DB.prepare('SELECT COUNT(*) total, SUM(CASE WHEN done=0 THEN 1 ELSE 0 END) open_n FROM user_reports WHERE target_id=? AND hidden=0').bind(t.id),
     env.DB.prepare("SELECT COUNT(*) c FROM sanctions WHERE user_id=? AND kind='warn' AND active=1 AND until>?").bind(t.id, now),
   ]);
   const rp = r[2].results[0] || {};
@@ -813,14 +1190,16 @@ async function modStats(req, env) {
   if (g.res) return g.res;
   const now = Date.now();
   const r = await env.DB.batch([
-    env.DB.prepare('SELECT action,COUNT(*) c FROM mod_log WHERE ts>? GROUP BY action ORDER BY c DESC').bind(now - DAY),
-    env.DB.prepare('SELECT action,COUNT(*) c FROM mod_log WHERE ts>? GROUP BY action ORDER BY c DESC').bind(now - 7 * DAY),
-    env.DB.prepare('SELECT actor_name n,COUNT(*) c FROM mod_log WHERE ts>? GROUP BY actor_id ORDER BY c DESC LIMIT 5').bind(now - 7 * DAY),
+    env.DB.prepare('SELECT action,COUNT(*) c FROM mod_log WHERE hidden=0 AND ts>? GROUP BY action ORDER BY c DESC').bind(now - DAY),
+    env.DB.prepare('SELECT action,COUNT(*) c FROM mod_log WHERE hidden=0 AND ts>? GROUP BY action ORDER BY c DESC').bind(now - 7 * DAY),
+    env.DB.prepare('SELECT actor_name n,COUNT(*) c FROM mod_log WHERE hidden=0 AND ts>? GROUP BY actor_id ORDER BY c DESC LIMIT 5').bind(now - 7 * DAY),
     env.DB.prepare("SELECT kind,COUNT(*) c FROM sanctions WHERE active=1 AND kind IN ('mute','kick','ban','revoke','shadow','nopm','slow') AND (until IS NULL OR until>?) GROUP BY kind").bind(now),
-    env.DB.prepare('SELECT COUNT(*) c FROM user_reports WHERE done=0'),
-    env.DB.prepare('SELECT tu.name n,COUNT(*) c FROM user_reports r LEFT JOIN users tu ON tu.id=r.target_id WHERE r.ts>? GROUP BY r.target_id ORDER BY c DESC LIMIT 5').bind(now - 7 * DAY),
+    env.DB.prepare('SELECT COUNT(*) c FROM user_reports WHERE done=0 AND hidden=0'),
+    env.DB.prepare('SELECT tu.name n,COUNT(*) c FROM user_reports r LEFT JOIN users tu ON tu.id=r.target_id WHERE r.hidden=0 AND r.ts>? GROUP BY r.target_id ORDER BY c DESC LIMIT 5').bind(now - 7 * DAY),
+    env.DB.prepare('SELECT COUNT(*) c FROM ban_props WHERE state=0'),
+    env.DB.prepare('SELECT COUNT(*) c FROM appeals WHERE state=0'),
   ]);
-  return json({ d1: r[0].results, d7: r[1].results, top: r[2].results, active: r[3].results, openReports: r[4].results[0].c, repTop: r[5].results });
+  return json({ d1: r[0].results, d7: r[1].results, top: r[2].results, active: r[3].results, openReports: r[4].results[0].c, repTop: r[5].results, openProps: r[6].results[0].c, openAppeals: r[7].results[0].c });
 }
 
 const cleanText = (v) =>
@@ -938,12 +1317,15 @@ async function poll(req, env, url) {
         bp: x.k === 'revoke' ? pwOf({ role: x.brole || 'visitor', rank: x.brank || 0 }) : 0 };
     });
   const pm_ = (await env.DB.prepare("SELECT 'p' k, text v FROM pins WHERE room=? UNION ALL SELECT 'm', mode FROM room_modes WHERE room=? "
+    + "UNION ALL SELECT 'e', json_object('ts',ts) FROM emergency WHERE id=1 "
     + "UNION ALL SELECT 'a', json_object('id',a.id,'text',a.text,'dur',a.dur,'ts',a.ts,'by',a.by_id,'name',COALESCE(x.name,''),'role',COALESCE(x.role,'visitor'),'rank',COALESCE(x.rank,0),'iv',COALESCE(f.iv,0)) "
     + "FROM announcements a LEFT JOIN users x ON x.id=a.by_id LEFT JOIN profiles f ON f.user_id=a.by_id WHERE a.id=(SELECT MAX(id) FROM announcements) AND a.id>? AND a.ts>?").bind(room, room, an, now - 20000).all()).results;
-  const pin = pm_.find((x) => x.k === 'p'), rmd = pm_.find((x) => x.k === 'm'), anr = pm_.find((x) => x.k === 'a');
+  const pin = pm_.find((x) => x.k === 'p'), rmd = pm_.find((x) => x.k === 'm'), emr = pm_.find((x) => x.k === 'e'), anr = pm_.find((x) => x.k === 'a');
+  let emg = null;
+  try { emg = emr ? { on: true, ...JSON.parse(emr.v) } : null; } catch { emg = null; }
   let annv = null;
   try { annv = anr ? JSON.parse(anr.v) : null; } catch { annv = null; }
-  const out = { msgs: msgs.map((r) => msgRow(r, vlv)), upd: upd.map((r) => msgRow(r, vlv)), pin: pin ? pin.v : null, rmode: rmd ? rmd.v : 'normal', ann: annv, online, now, mute: mu ? { until: mu.until || 0, reason: mu.reason || '' } : null, warns, sx };
+  const out = { msgs: msgs.map((r) => msgRow(r, vlv)), upd: upd.map((r) => msgRow(r, vlv)), pin: pin ? pin.v : null, rmode: rmd ? rmd.v : 'normal', emg, ann: annv, online, now, mute: mu ? { until: mu.until || 0, reason: mu.reason || '' } : null, warns, sx };
   const paRaw = url.searchParams.get('pa');
   if (paRaw !== null) out.pm = await pmFetch(env, u.id, parseInt(paRaw, 10) || 0, url.searchParams.get('pf') === '1', now, parseInt(url.searchParams.get('pu'), 10) || 0, vlv);
   const naRaw = url.searchParams.get('na');
@@ -1253,6 +1635,7 @@ async function postMsg(req, env) {
     const recent = await env.DB.prepare('SELECT 1 x FROM messages WHERE user_id=? AND ts>? LIMIT 1').bind(u.id, now - USER_SLOW_MS).first();
     if (recent) return json({ error: 'وضع بطيء عليك: رسالة كل ' + USER_SLOW_MS / 1000 + ' ثانية' }, 429);
   }
+  if (lvOf(u) < MOD_MIN.emergency && await env.DB.prepare('SELECT 1 x FROM emergency WHERE id=1').first()) return json({ error: 'وضع الطوارئ مفعّل: الكتابة متوقفة مؤقتاً' }, 403);
   const md = await env.DB.prepare('SELECT mode FROM room_modes WHERE room=?').bind(room).first();
   if (md && !(lvOf(await uIn(env, u, room)) >= 3)) {
     if (md.mode === 'ro') return json({ error: 'الغرفة للقراءة فقط حالياً' }, 403);
@@ -1263,6 +1646,8 @@ async function postMsg(req, env) {
   }
   const r = await env.DB.prepare('SELECT COUNT(*) c FROM messages WHERE user_id=? AND ts>?').bind(u.id, now - 5000).first();
   if (r.c >= 4) return json({ error: 'أبطئ قليلاً، رسائلك كثيرة' }, 429);
+  const wh = await wwCheck(env, u, text);
+  if (wh) return await wwApply(env, u, wh, now);
 
   // الأوامر: تُنفَّذ في الخادم (النرد عشوائي حقيقي، والاستطلاع للمشرفين فقط)
   let kind = null, pl = null;
@@ -1606,8 +1991,23 @@ async function giftList(req, env, url) {
   return json({ ok: true, n: rs[1].results[0].n, list });
 }
 
+// حذف هدية من ملفي (المستلم فقط)
+async function giftDelete(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  const r = await env.DB.prepare('DELETE FROM gifts WHERE id=? AND to_id=?').bind(id, u.id).run();
+  if (!r.meta || !r.meta.changes) return json({ error: 'الهدية غير موجودة' }, 404);
+  const n = await env.DB.prepare('SELECT COUNT(*) n FROM gifts WHERE to_id=?').bind(u.id).first();
+  return json({ ok: true, n: n.n });
+}
+
 // ---------- المرحلة 7د: الزيارات ----------
 // صف واحد لكل زائر على كل ملف (آخر زيارة). يُفرض الإخفاء ووضع الشبح هنا وليس في المتصفح
+const VISIT_NOTIF_GAP = DAY;   // إشعار الزيارة: مرة كل 24 ساعة لكل زائر على كل ملف
+const VISIT_NOTIF_MAX = 20;    // لا يُضاف إشعار زيارة إن كان عند صاحب الملف 20 غير مقروء
 const VISIT_GAP = 60000;   // لا يُحدَّث وقت الزيارة إن كانت السابقة أحدث من دقيقة
 const VISIT_SHOW = 30;
 async function ghostOk(env, u) {
@@ -1619,8 +2019,13 @@ async function recordVisit(env, u, tid, now) {
     .bind(u.id, u.id, tid, u.id, tid, u.id).first();
   if (!f.ex || f.hv || f.ig) return;                    // الهدف غير موجود | الزائر يخفي زياراته | الهدف يتجاهل الزائر
   if (f.gh && (lvOf(u) >= 2 || f.rm)) return;           // وضع الشبح للإشراف فقط
-  await env.DB.prepare('INSERT INTO visits(target_id,visitor_id,ts) VALUES(?,?,?) ON CONFLICT(target_id,visitor_id) DO UPDATE SET ts=excluded.ts WHERE visits.ts<excluded.ts-?')
-    .bind(tid, u.id, now, VISIT_GAP).run();
+  // الإشعار أولاً (يفحص قبل تحديث الصف)، ثم تسجيل الزيارة وتحديث وقت آخر إشعار
+  await env.DB.batch([
+    env.DB.prepare("INSERT INTO notifications(user_id,ty,text,ref,ts) SELECT ?,'visit',?,?,? WHERE NOT EXISTS (SELECT 1 FROM visits WHERE target_id=? AND visitor_id=? AND nts>?) AND (SELECT COUNT(*) FROM notifications WHERE user_id=? AND ty='visit' AND rd=0)<?")
+      .bind(tid, u.name + ' زار ملفك الشخصي', u.id, now, tid, u.id, now - VISIT_NOTIF_GAP, tid, VISIT_NOTIF_MAX),
+    env.DB.prepare('INSERT INTO visits(target_id,visitor_id,ts,nts) VALUES(?,?,?,?) ON CONFLICT(target_id,visitor_id) DO UPDATE SET nts=CASE WHEN visits.nts<excluded.ts-? THEN excluded.ts ELSE visits.nts END, ts=excluded.ts WHERE visits.ts<excluded.ts-? OR visits.nts<excluded.ts-?')
+      .bind(tid, u.id, now, now, VISIT_NOTIF_GAP, VISIT_GAP, VISIT_NOTIF_GAP),
+  ]);
 }
 
 // من زار ملفي (الأحدث 30)، مع حالة الإخفاء ووضع الشبح
@@ -1674,6 +2079,277 @@ async function announceSend(req, env) {
   return json({ ok: true, ann: { id: rs[0].meta.last_row_id, text, dur, ts: now, by: u.id, name: u.name, role: u.role, rank: u.rank || 0, iv: f.iv || 0 } });
 }
 
+// ---------- المرحلة 6و: حظر الجهاز / IP + اقتراح الحظر + التظلّمات ----------
+// لا يوجد حظر دائم: كل حظر بمدة إلزامية. وحظر الجهاز بلا سقف أقصى للمدة (الحد الوحيد حدّ الوقت التقني).
+const MAX_TS = 8.64e15;           // أقصى وقت يقبله Date
+const PROP_OPEN_MAX = 3;          // اقتراحات معلّقة لكل مقترِح
+const APPEAL_GAP = 6 * 36e5;      // 6 ساعات بين تظلّمين
+const APPEAL_KINDS = ['ban', 'mute', 'kick', 'revoke', 'nopm', 'slow'];
+const STAFF_Q = "role IN ('owner','programmer','super') OR (role='member' AND rank>=";
+
+// لا يُحفظ العنوان نصاً في جدول الحظر، بل بصمته (يُفضَّل تعيين سرّ IP_SALT في إعدادات Worker)
+async function ipHash(env, ip) { return await sha256('ipban:' + (env.IP_SALT || '') + ':' + ip); }
+async function ipBanned(env, ip, now) {
+  if (!ip || ip === 'unknown') return null;
+  return await env.DB.prepare('SELECT id,reason,until FROM ip_bans WHERE ip_hash=? AND active=1 AND until>? ORDER BY until DESC LIMIT 1').bind(await ipHash(env, ip), now).first();
+}
+function leftTx(m) { return m >= 2880 ? Math.ceil(m / 1440) + ' يوماً' : m >= 120 ? Math.ceil(m / 60) + ' ساعة' : m + ' دقيقة'; }
+function ipMsg(b, now) {
+  const left = Math.max(1, Math.ceil((b.until - now) / 6e4));
+  return 'هذا الجهاز أو الشبكة محظور' + (b.until < 8e15 ? ' لمدة ' + leftTx(left) + ' متبقية' : '') + (b.reason ? ' — السبب: ' + b.reason : '');
+}
+
+// يُنفَّذ حظر الجهاز: يحفظ بصمة آخر عنوان للهدف ويقطع جلسات حساباته المشاركة له
+async function ipBanRun(env, actor, t, minutes, reason, now) {
+  if (lvBase({ role: t.role, rank: t.rank }) >= 2) return { err: 'حظر الجهاز لا يسري على المشرفين، استخدم حظر الحساب' };
+  const tu = await env.DB.prepare('SELECT last_ip FROM users WHERE id=?').bind(t.id).first();
+  const ip = tu && tu.last_ip;
+  if (!ip || ip === 'unknown') return { err: 'لا يوجد عنوان مسجَّل لهذا المستخدم' };
+  const au = await env.DB.prepare('SELECT last_ip FROM users WHERE id=?').bind(actor.id).first();
+  if (au && au.last_ip === ip) return { err: 'عنوانك مطابق لعنوان الهدف، فحظره سيحظرك أنت أيضاً' };
+  const until = Math.min(now + minutes * 6e4, MAX_TS);
+  const h = await ipHash(env, ip);
+  const same = (await env.DB.prepare('SELECT id,role,rank FROM users WHERE last_ip=?').bind(ip).all()).results;
+  const hit = same.filter((x) => x.id === t.id || (lvBase(x) < 2 && canMod(actor, x, MOD_MIN.ipban)));
+  const st = [
+    env.DB.prepare('UPDATE ip_bans SET active=0, lifted_by=?, lifted_ts=? WHERE ip_hash=? AND active=1').bind(actor.id, now, h),
+    env.DB.prepare('INSERT INTO ip_bans(ip_hash,target_id,target_name,reason,by_id,by_name,ts,until) VALUES(?,?,?,?,?,?,?,?)').bind(h, t.id, t.name, reason, actor.id, actor.name, now, until),
+    logStmt(env, actor, 'ipban', t, (until >= 8e15 ? 'بلا نهاية قريبة' : 'حتى ' + new Date(until).toISOString()) + ' | ' + hit.length + ' حساب | ' + reason, now),
+  ];
+  for (const x of hit) {
+    st.push(env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(x.id));
+    st.push(env.DB.prepare('DELETE FROM presence WHERE user_id=?').bind(x.id));
+  }
+  await env.DB.batch(st);
+  return { until, n: hit.length };
+}
+
+async function modIpBan(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const g = await modGuard(env, u, parseInt(b.target, 10) || 0, 'ipban');
+  if (g.res) return g.res;
+  const m = Math.floor(Number(b.minutes) || 0);
+  if (m <= 0) return json({ error: 'حظر الجهاز يحتاج مدة (لا يوجد حظر دائم)' }, 400);
+  const reason = cleanText(b.reason).slice(0, MAX_REASON);
+  if (!reason) return json({ error: 'اكتب سبب الحظر' }, 400);
+  const r = await ipBanRun(env, u, g.t, m, reason, Date.now());
+  return r.err ? json({ error: r.err }, 400) : json({ ok: true, until: r.until, n: r.n });
+}
+
+// رفع حظر جهاز بالرقم (يظهر في تبويب العقوبات). لا يرفعه من هو أدنى ممن وضعه إلا المالك أو صاحبه
+async function modIpLift(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (lvOf(u) < MOD_MIN.ipban) return json({ error: 'لا تملك صلاحية هذا الإجراء' }, 403);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0, now = Date.now();
+  const r = id ? await env.DB.prepare('SELECT i.id,i.target_id,i.target_name,i.by_id,p.role prole,p.rank prank FROM ip_bans i LEFT JOIN users p ON p.id=i.by_id WHERE i.id=? AND i.active=1 AND i.until>?').bind(id, now).first() : null;
+  if (!r) return json({ error: 'لا يوجد حظر جهاز فعّال بهذا الرقم' }, 404);
+  if (u.role !== 'owner' && r.by_id !== u.id && r.prole && pwOf(u) < pwOf({ role: r.prole, rank: r.prank || 0 })) return json({ error: 'وضعه من هو أعلى منك، ولا تستطيع رفعه' }, 403);
+  await env.DB.batch([
+    env.DB.prepare('UPDATE ip_bans SET active=0, lifted_by=?, lifted_ts=? WHERE id=? AND active=1').bind(u.id, now, id),
+    logStmt(env, u, 'unipban', { id: r.target_id, name: r.target_name || '؟' }, '#' + id, now),
+  ]);
+  return json({ ok: true });
+}
+
+// الحسابات المرتبطة بنفس العنوان (حقيقية). رقم العنوان نفسه للمبرمج وصاحب الموقع فقط
+async function modLinked(req, env, url) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const g = await modGuard(env, u, parseInt(url.searchParams.get('target'), 10) || 0, 'linked');
+  if (g.res) return g.res;
+  const now = Date.now();
+  const tu = await env.DB.prepare('SELECT last_ip FROM users WHERE id=?').bind(g.t.id).first();
+  const ip = tu && tu.last_ip;
+  if (!ip || ip === 'unknown') return json({ ok: true, list: [], ip: null, banned: false });
+  const list = (await env.DB.prepare('SELECT id,name,role FROM users WHERE last_ip=? AND id<>? ORDER BY id DESC LIMIT 30').bind(ip, g.t.id).all()).results;
+  return json({ ok: true, list, ip: lvOf(u) >= 6 ? ip : null, banned: !!(await ipBanned(env, ip, now)) });
+}
+
+// ---------- اقتراح الحظر ----------
+// يقترحه من لا يملك التنفيذ المباشر، ويعتمده المستوى 5 فأعلى. والحظر الناتج بمدة دائماً
+async function modPropose(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const kind = b.kind === 'ipban' ? 'ipban' : 'ban';
+  const g = await modGuard(env, u, parseInt(b.target, 10) || 0, 'propose');
+  if (g.res) return g.res;
+  if (lvOf(u) >= MOD_MIN[kind === 'ipban' ? 'ipban' : 'tempban']) return json({ error: 'تملك صلاحية التنفيذ مباشرة، لا حاجة للاقتراح' }, 400);
+  const minutes = Math.floor(Number(b.minutes) || 0);
+  if (minutes <= 0) return json({ error: 'اكتب مدة الحظر المقترحة (لا يوجد حظر دائم)' }, 400);
+  const reason = cleanText(b.reason).slice(0, MAX_REASON);
+  if (!reason) return json({ error: 'اكتب سبب الاقتراح' }, 400);
+  const now = Date.now(), t = g.t;
+  const c = await env.DB.prepare('SELECT COUNT(*) n, COALESCE(SUM(CASE WHEN target_id=? THEN 1 ELSE 0 END),0) same FROM ban_props WHERE by_id=? AND state=0').bind(t.id, u.id).first();
+  if (c.same) return json({ error: 'لديك اقتراح معلّق على هذا المستخدم' }, 409);
+  if (c.n >= PROP_OPEN_MAX) return json({ error: 'لديك ' + PROP_OPEN_MAX + ' اقتراحات معلّقة، انتظر مراجعتها' }, 429);
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO ban_props(target_id,target_name,by_id,by_name,reason,minutes,kind,ts) VALUES(?,?,?,?,?,?,?,?)').bind(t.id, t.name, u.id, u.name, reason, Math.min(minutes, 5256000), kind, now),
+    env.DB.prepare('INSERT INTO notifications(user_id,ty,text,ref,ts) SELECT id,\'info\',?,NULL,? FROM users WHERE ' + STAFF_Q + '98)').bind('📨 اقتراح ' + (kind === 'ipban' ? 'حظر جهاز' : 'حظر') + ' جديد على ' + t.name + ' من ' + u.name, now),
+    logStmt(env, u, 'propose', t, (kind === 'ipban' ? 'جهاز' : 'حساب') + ' | ' + minutes + ' د | ' + reason, now),
+  ]);
+  return json({ ok: true });
+}
+
+async function modProps(req, env, url) {
+  const g = await staffGate(req, env, 'propreview');
+  if (g.res) return g.res;
+  const all = url.searchParams.get('state') === 'all';
+  const rows = (await env.DB.prepare('SELECT id,target_id,target_name,by_id,by_name,reason,minutes,kind,ts,state,rev_name,rev_ts,rev_note FROM ban_props' + (all ? '' : ' WHERE state=0') + ' ORDER BY id DESC LIMIT 50').all()).results;
+  return json({ rows });
+}
+
+async function modPropReview(req, env) {
+  const g = await staffGate(req, env, 'propreview');
+  if (g.res) return g.res;
+  const u = g.u;
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0, now = Date.now();
+  const p = id ? await env.DB.prepare('SELECT * FROM ban_props WHERE id=? AND state=0').bind(id).first() : null;
+  if (!p) return json({ error: 'الاقتراح غير موجود أو تمت مراجعته' }, 404);
+  const note = cleanText(b.note).slice(0, 200);
+  const done = (state) => env.DB.prepare('UPDATE ban_props SET state=?, rev_id=?, rev_name=?, rev_ts=?, rev_note=? WHERE id=? AND state=0').bind(state, u.id, u.name, now, note, id);
+  const tg = { id: p.target_id, name: p.target_name };
+  if (!b.ok) {
+    await env.DB.batch([done(2), logStmt(env, u, 'proprej', tg, '#' + id + (note ? ' | ' + note : ''), now),
+      notifStmt(env, p.by_id, 'info', 'رُفض اقتراحك حظر ' + p.target_name + (note ? ' — ' + note : ''), null, now)]);
+    return json({ ok: true });
+  }
+  const t = await env.DB.prepare('SELECT id,name,role,rank FROM users WHERE id=?').bind(p.target_id).first();
+  if (!t) { await done(2).run(); return json({ error: 'المستخدم لم يعد موجوداً، أُغلق الاقتراح' }, 404); }
+  const act = p.kind === 'ipban' ? 'ipban' : 'tempban';
+  if (lvOf(u) < MOD_MIN[act] || !canMod(u, t, MOD_MIN[act])) return json({ error: 'لا تملك صلاحية تنفيذ هذا الحظر على هذا المستخدم' }, 403);
+  const m = Math.floor(Number(b.minutes) || 0) > 0 ? Math.floor(Number(b.minutes)) : p.minutes;
+  const why = p.reason + ' (اقتراح ' + p.by_name + ')';
+  if (p.kind === 'ipban') {
+    const r = await ipBanRun(env, u, t, m, why, now);
+    if (r.err) return json({ error: r.err }, 400);
+  } else {
+    const d = untilFrom(m, 'ban', now);
+    const st = sanctionStmts(env, u, t, 'ban', null, why, d.until, now);
+    st.push(env.DB.prepare('DELETE FROM sessions WHERE user_id=?').bind(t.id), env.DB.prepare('DELETE FROM presence WHERE user_id=?').bind(t.id));
+    await env.DB.batch(st);
+  }
+  await env.DB.batch([done(1), logStmt(env, u, 'propok', tg, '#' + id, now),
+    notifStmt(env, p.by_id, 'info', 'اعتُمد اقتراحك حظر ' + p.target_name, null, now)]);
+  return json({ ok: true });
+}
+
+// ---------- التظلّمات ----------
+// المحظور لا جلسة له، فيُعرَّف باسمه وكلمة مروره (وتُحسب المحاولات الخاطئة). أما المكتوم فبجلسته
+async function appealWho(req, env, ip, b) {
+  const cu = await currentUser(req, env);
+  if (cu) return { u: await env.DB.prepare('SELECT id,name,role,rank,last_ip FROM users WHERE id=?').bind(cu.id).first() };
+  if (!b || !b.name) return { res: json({ error: 'اكتب الاسم وكلمة المرور' }, 401) };
+  if (await tooManyAttempts(env, ip)) return { res: json({ error: 'محاولات كثيرة، انتظر 15 دقيقة' }, 429) };
+  const u = await env.DB.prepare('SELECT id,name,role,rank,last_ip,pass_hash,salt FROM users WHERE name=?').bind(String(b.name || '').trim()).first();
+  const ph = u ? await hashPass(String(b.password || ''), u.salt) : null;
+  if (!u || ph !== u.pass_hash) { await noteAttempt(env, ip); return { res: json({ error: 'الاسم أو كلمة المرور غير صحيحة' }, 401) }; }
+  return { u };
+}
+// العقوبات الفعّالة التي يحق لصاحبها التظلّم منها (لا إخفاء الرسائل: سرّي عن صاحبه)
+async function appealables(env, u, now) {
+  const rows = (await env.DB.prepare('SELECT id,kind,room,reason,by_name,until FROM sanctions WHERE user_id=? AND active=1 AND kind IN (\'' + APPEAL_KINDS.join("','") + '\') AND (until IS NULL OR until>?) ORDER BY id DESC').bind(u.id, now).all()).results;
+  const ib = await ipBanned(env, u.last_ip, now);
+  if (ib && u.role !== 'owner' && lvBase(u) < 2) rows.push({ id: ib.id, kind: 'ipban', room: null, reason: ib.reason, by_name: '', until: ib.until >= 8e15 ? null : ib.until });
+  return rows;
+}
+
+async function appealStatus(req, env, ip) {
+  const b = await readBody(req);
+  const w = await appealWho(req, env, ip, b);
+  if (w.res) return w.res;
+  const now = Date.now();
+  const [sanc, ap] = await Promise.all([
+    appealables(env, w.u, now),
+    env.DB.prepare('SELECT id,text,ts,state,rev_name,rev_note,sanc_kind FROM appeals WHERE user_id=? ORDER BY id DESC LIMIT 5').bind(w.u.id).all(),
+  ]);
+  return json({ ok: true, name: w.u.name, sanctions: sanc.map((x) => ({ id: x.id, kind: x.kind, room: x.room, reason: x.reason || '', until: x.until })), appeals: ap.results });
+}
+
+async function appealSend(req, env, ip) {
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const w = await appealWho(req, env, ip, b);
+  if (w.res) return w.res;
+  const u = w.u, now = Date.now();
+  const text = cleanText(b.text).slice(0, 500);
+  if (text.length < 10) return json({ error: 'اشرح سبب التظلّم بـ 10 أحرف على الأقل' }, 400);
+  const list = await appealables(env, u, now);
+  if (!list.length) return json({ error: 'لا توجد عقوبة فعّالة يمكن التظلّم منها' }, 400);
+  const pick = list.find((x) => x.kind + ':' + x.id === String(b.sid || '')) || list[0];
+  const f = await env.DB.prepare('SELECT (SELECT COUNT(*) FROM appeals WHERE user_id=? AND state=0) pend, (SELECT MAX(ts) FROM appeals WHERE user_id=?) last').bind(u.id, u.id).first();
+  if (f.pend) return json({ error: 'لديك تظلّم قيد المراجعة' }, 409);
+  if (f.last && now - f.last < APPEAL_GAP) return json({ error: 'يمكنك تقديم تظلّم جديد بعد ' + leftTx(Math.ceil((APPEAL_GAP - (now - f.last)) / 6e4)) }, 429);
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO appeals(user_id,user_name,sanc_id,sanc_kind,sanc_by,sanc_reason,sanc_until,text,ts) VALUES(?,?,?,?,?,?,?,?,?)')
+      .bind(u.id, u.name, pick.id, pick.kind, pick.by_name || '', pick.reason || '', pick.until || null, text, now),
+    env.DB.prepare('INSERT INTO notifications(user_id,ty,text,ref,ts) SELECT id,\'info\',?,NULL,? FROM users WHERE ' + STAFF_Q + '91)').bind('⚖️ تظلّم جديد من ' + u.name, now),
+  ]);
+  return json({ ok: true });
+}
+
+async function modAppeals(req, env, url) {
+  const g = await staffGate(req, env, 'appeals');
+  if (g.res) return g.res;
+  const all = url.searchParams.get('state') === 'all', now = Date.now();
+  const rows = (await env.DB.prepare('SELECT a.id,a.user_id,a.user_name,a.sanc_id,a.sanc_kind,a.sanc_by,a.sanc_reason,a.sanc_until,a.text,a.ts,a.state,a.rev_name,a.rev_note,'
+    + "CASE WHEN a.sanc_kind='ipban' THEN (SELECT 1 FROM ip_bans i WHERE i.id=a.sanc_id AND i.active=1 AND i.until>?) ELSE (SELECT 1 FROM sanctions s WHERE s.id=a.sanc_id AND s.active=1 AND (s.until IS NULL OR s.until>?)) END live "
+    + 'FROM appeals a' + (all ? '' : ' WHERE a.state=0') + ' ORDER BY a.id DESC LIMIT 50').bind(now, now).all()).results;
+  return json({ rows });
+}
+
+// state: 1 = قُبل ورُفعت العقوبة | 2 = رُفض | 3 = أُغلق لأن العقوبة لم تعد فعّالة
+async function modAppealReview(req, env) {
+  const g = await staffGate(req, env, 'appeals');
+  if (g.res) return g.res;
+  const u = g.u;
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0, now = Date.now();
+  const a = id ? await env.DB.prepare('SELECT * FROM appeals WHERE id=? AND state=0').bind(id).first() : null;
+  if (!a) return json({ error: 'التظلّم غير موجود أو تمت مراجعته' }, 404);
+  const note = cleanText(b.note).slice(0, 200);
+  const done = (state) => env.DB.prepare('UPDATE appeals SET state=?, rev_id=?, rev_name=?, rev_ts=?, rev_note=? WHERE id=? AND state=0').bind(state, u.id, u.name, now, note, id);
+  const tg = { id: a.user_id, name: a.user_name };
+  if (!b.ok) {
+    await env.DB.batch([done(2), logStmt(env, u, 'appealrej', tg, '#' + id + (note ? ' | ' + note : ''), now),
+      notifStmt(env, a.user_id, 'info', 'رُفض تظلّمك' + (note ? ' — ' + note : ''), null, now)]);
+    return json({ ok: true });
+  }
+  const t = await env.DB.prepare('SELECT id,name,role,rank FROM users WHERE id=?').bind(a.user_id).first();
+  if (!t) { await done(3).run(); return json({ error: 'المستخدم لم يعد موجوداً، أُغلق التظلّم' }, 404); }
+  let lift;
+  if (a.sanc_kind === 'ipban') {
+    const cur = await env.DB.prepare('SELECT i.by_id,p.role,p.rank FROM ip_bans i LEFT JOIN users p ON p.id=i.by_id WHERE i.id=? AND i.active=1 AND i.until>?').bind(a.sanc_id, now).first();
+    if (cur) {
+      if (lvOf(u) < MOD_MIN.ipban) return json({ error: 'رفع حظر الجهاز يحتاج مستوى أعلى' }, 403);
+      if (u.role !== 'owner' && cur.by_id !== u.id && cur.role && pwOf(u) < pwOf({ role: cur.role, rank: cur.rank || 0 })) return json({ error: 'وضعه من هو أعلى منك، ولا تستطيع رفعه' }, 403);
+      lift = env.DB.prepare('UPDATE ip_bans SET active=0, lifted_by=?, lifted_ts=? WHERE id=? AND active=1').bind(u.id, now, a.sanc_id);
+    }
+  } else {
+    const cur = await env.DB.prepare('SELECT s.by_id,p.role,p.rank FROM sanctions s LEFT JOIN users p ON p.id=s.by_id WHERE s.id=? AND s.user_id=? AND s.active=1 AND (s.until IS NULL OR s.until>?)').bind(a.sanc_id, a.user_id, now).first();
+    if (cur) {
+      const min = MOD_MIN[a.sanc_kind === 'ban' ? 'tempban' : a.sanc_kind];
+      if (min === undefined || lvOf(u) < min || !canMod(u, t, min)) return json({ error: 'لا تملك صلاحية رفع هذه العقوبة' }, 403);
+      if (u.role !== 'owner' && cur.by_id !== u.id && cur.role && pwOf(u) < pwOf({ role: cur.role, rank: cur.rank || 0 })) return json({ error: 'وضعها من هو أعلى منك، ولا تستطيع رفعها' }, 403);
+      lift = env.DB.prepare('UPDATE sanctions SET active=0, lifted_by=?, lifted_ts=? WHERE id=? AND active=1').bind(u.id, now, a.sanc_id);
+    }
+  }
+  if (!lift) {
+    await env.DB.batch([done(3), logStmt(env, u, 'appealend', tg, '#' + id + ' | انتهت العقوبة', now)]);
+    return json({ ok: true, closed: true });
+  }
+  await env.DB.batch([lift, done(1), logStmt(env, u, 'appealok', tg, '#' + id + ' | ' + a.sanc_kind + (note ? ' | ' + note : ''), now),
+    notifStmt(env, a.user_id, 'info', 'قُبل تظلّمك ورُفعت العقوبة عنك' + (note ? ' — ' + note : ''), null, now)]);
+  return json({ ok: true });
+}
+
 async function logout(req, env) {
   const tok = getCookie(req, 'sid');
   if (tok) await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha256(tok)).run();
@@ -1697,6 +2373,10 @@ export default {
       if (req.method === 'POST' && url.pathname === '/api/login') return await login(req, env, ip);
       if (req.method === 'POST' && url.pathname === '/api/guest') return await guest(req, env, ip);
       if (req.method === 'POST' && url.pathname === '/api/logout') return await logout(req, env);
+      if (req.method === 'POST' && (url.pathname === '/api/appeal' || url.pathname === '/api/appeal/status')) {
+        await ensureSchema(env);
+        return url.pathname === '/api/appeal' ? await appealSend(req, env, ip) : await appealStatus(req, env, ip);
+      }
       const SOC_POST = { '/api/friend/request': friendRequest, '/api/friend/accept': friendAccept, '/api/friend/decline': friendDecline,
         '/api/friend/remove': friendRemove, '/api/notif/read': notifRead, '/api/ignore/set': ignoreSet, '/api/prefs/set': prefsSet, '/api/report': reportUser };
       Object.assign(SOC_POST, { '/api/msg/edit': msgEdit, '/api/msg/delete': msgDelete, '/api/msg/react': msgReact, '/api/msg/vote': msgVote,
@@ -1710,12 +2390,12 @@ export default {
         SOC_POST['/api/mod/un' + k] = (rq, ev) => modLift(rq, ev, k);
       }
       Object.assign(SOC_POST, { '/api/mod/warn': modWarn, '/api/mod/rank': modRank, '/api/mod/revoke': modRevoke, '/api/mod/restore': modRestore,
-        '/api/mod/rename': modRename, '/api/mod/move': modMove, '/api/room/mod': roomModSet, '/api/room/mode': roomModeSet, '/api/mod/report/done': modReportDone, '/api/mod/note': modNote,
+        '/api/mod/rename': modRename, '/api/mod/move': modMove, '/api/room/mod': roomModSet, '/api/room/mode': roomModeSet, '/api/mod/emergency': emergencySet, '/api/ww/list': wwList, '/api/ww/save': wwSave, '/api/ww/del': wwDel, '/api/ww/lock': wwLock, '/api/owner/log/del': ownerLogDel, '/api/owner/report/del': ownerReportDel, '/api/owner/log/hide': ownerLogHide, '/api/owner/report/hide': ownerReportHide, '/api/mod/report/done': modReportDone, '/api/mod/note': modNote,
         '/api/mod/delmsg': (rq, ev) => modDelMsgs(rq, ev, 'delmsg'), '/api/mod/wipe': (rq, ev) => modDelMsgs(rq, ev, 'wipe'),
         '/api/mod/tempban': (rq, ev) => modApply(rq, ev, 'ban', 'tempban'),
-        '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend });
-      const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats };
-      const PF_GET = { '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/visits': visitsGet };
+        '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/mod/ipban': modIpBan, '/api/mod/unipban': modIpLift, '/api/mod/propose': modPropose, '/api/mod/prop/review': modPropReview, '/api/mod/appeal/review': modAppealReview, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/gift/delete': giftDelete, '/api/name/change': nameChange, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend });
+      const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
+      const PF_GET = { '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet };
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);
