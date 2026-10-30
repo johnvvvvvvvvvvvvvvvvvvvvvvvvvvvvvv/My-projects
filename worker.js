@@ -9,105 +9,18 @@
 // المرحلة 6د: مشرف الغرفة (room_mods) + أوضاع الغرفة (room_modes: عادي/بطيء/قراءة فقط) تُفرض في الخادم
 // المرحلة 6و: حظر الجهاز/IP (بمدة إلزامية وبلا سقف) + اقتراح الحظر + التظلّمات + الحسابات المرتبطة بالعنوان
 // المرحلة 6ج: التحذير + الرتب + سحب الصلاحيات + حذف رسائل مستخدم + إجبار تغيير الاسم + نقل لغرفة (لا حظر دائم: كل حظر بمدة)
-const NAME_OK = /^[\p{L}\p{M}\p{N}_\-. ]+$/u;
-const RESERVED = /(admin|owner|moderator|operator|ادمن|أدمن|مشرف|صاحب|مبرمج|سوبر)/i;
-const DAY = 864e5;
-const enc = new TextEncoder();
-const ROOMS = ['العامة', 'الخليج', 'مصر', 'المغرب العربي', 'الشباب', 'الثقافة والمنوعات'];
-const KEEP = 30 * DAY;      // مدة حفظ الرسائل
-const ONLINE_MS = 45000;    // يُعدّ المستخدم متصلاً إن كان آخر نبض خلال 45 ثانية
-const MAX_TEXT = 500;
-const HISTORY = 15;        // عدد الرسائل القديمة عند دخول الغرفة
-const TMP_OK = [30000, 3600000, 86400000]; // مدد الرسائل المؤقتة المسموحة: 30 ث، ساعة، يوم
-const PM_HISTORY = 200;    // عدد رسائل الخاص المحمّلة عند الدخول
-const MAX_FRIENDS = 200;
-const MAX_IGNORES = 300;
-const EDIT_MS = 15 * 6e4;   // مهلة تعديل الرسالة
-const EMOJI = ['👍', '❤️', '😂', '😮', '😢'];
-const LVN = { visitor: 0, member: 1, rankmod: 2, roommod: 3, genmod: 4, super: 5, programmer: 6, owner: 7 };
-function lvOf(u) {
-  const b = lvBase(u);
-  return u.lvx && !u.rv && u.lvx > b ? u.lvx : b; // lvx = رفع مؤقت لمشرف الغرفة داخل غرفته فقط
-}
-function lvBase(u) {
-  if (u.rv && u.role !== 'owner') return u.role === 'visitor' ? 0 : 1; // سُحبت صلاحياته مؤقتاً
-  if (u.role === 'member') { const r = u.rank || 0; return r >= 98 ? 5 : r >= 91 ? 4 : r >= 90 ? 2 : 1; }
-  return LVN[u.role] || 0;
-}
-const pwOf = (u) => u.rv && u.role !== 'owner' ? lvOf(u) * 100 : lvOf(u) * 100 + (u.role === 'member' ? (u.rank || 0) : 0);
-// سقف الرتبة التي يحق للمستخدم منحها (كما في الواجهة)
-const capOf = (u) => u.role === 'owner' ? 100 : u.role === 'programmer' ? 90 : lvOf(u) >= 5 ? 40 : lvOf(u) === 4 ? 20 : 0;
-function canMod(a, t, min) {
-  if (a.id === t.id) return false;
-  if (a.role === 'owner') return true;
-  if (t.role === 'owner') return false;
-  return lvOf(a) >= min && pwOf(a) > pwOf(t);
-}
-const DEBUG = true;       // true يُظهر سبب خطأ الخادم للتشخيص فقط
+// نقطة الدخول: تم نقل الأدوات الأساسية إلى وحدات مستقلة دون تغيير منطق المسارات.
+import {
+  NAME_OK, RESERVED, DAY, ROOMS, KEEP, ONLINE_MS, MAX_TEXT, HISTORY, TMP_OK,
+  PM_HISTORY, MAX_FRIENDS, MAX_IGNORES, EDIT_MS, EMOJI, LVN, lvOf, lvBase,
+  pwOf, capOf, canMod, DEBUG,
+} from './src/config.js';
+import { json, serverError, readBody } from './src/http.js';
+import {
+  hex, rand, sha256, hashPass, getCookie, currentUser, startSession,
+  tooManyAttempts, noteAttempt,
+} from './src/security.js';
 
-const json = (data, status = 200, headers = {}) =>
-  new Response(JSON.stringify(data), {
-    status,
-    headers: { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store', ...headers },
-  });
-
-function serverError(e, where) {
-  console.error('ERR ' + where, (e && e.stack) || e);
-  const d = String((e && e.message) || e).slice(0, 200);
-  return json({ error: DEBUG ? 'خطأ في الخادم [' + where + ': ' + d + ']' : 'خطأ في الخادم' }, 500);
-}
-
-const hex = (buf) => [...new Uint8Array(buf)].map((b) => b.toString(16).padStart(2, '0')).join('');
-const rand = (n) => hex(crypto.getRandomValues(new Uint8Array(n)));
-
-async function sha256(s) {
-  return hex(await crypto.subtle.digest('SHA-256', enc.encode(s)));
-}
-
-async function hashPass(pass, salt) {
-  const key = await crypto.subtle.importKey('raw', enc.encode(pass), 'PBKDF2', false, ['deriveBits']);
-  const bits = await crypto.subtle.deriveBits(
-    { name: 'PBKDF2', hash: 'SHA-256', salt: enc.encode(salt), iterations: 100000 },
-    key,
-    256
-  );
-  return hex(bits);
-}
-
-function getCookie(req, name) {
-  const m = (req.headers.get('cookie') || '').match(new RegExp('(?:^|; )' + name + '=([^;]+)'));
-  return m ? m[1] : null;
-}
-
-async function currentUser(req, env) {
-  const tok = getCookie(req, 'sid');
-  if (!tok) return null;
-  const th = await sha256(tok);
-  return await env.DB.prepare(
-    "SELECT u.id,u.name,u.role,u.rank,u.age,u.gender,u.country,u.lang,u.created_at,(SELECT 1 FROM sanctions x WHERE x.user_id=u.id AND x.kind='revoke' AND x.active=1 AND (x.until IS NULL OR x.until>?) LIMIT 1) rv FROM sessions s JOIN users u ON u.id=s.user_id WHERE s.token_hash=? AND s.expires_at>?"
-  ).bind(Date.now(), th, Date.now()).first();
-}
-
-async function startSession(env, userId, days = 30) {
-  const tok = rand(32);
-  const now = Date.now();
-  await env.DB.prepare('INSERT INTO sessions(token_hash,user_id,created_at,expires_at) VALUES(?,?,?,?)')
-    .bind(await sha256(tok), userId, now, now + days * DAY).run();
-  return 'sid=' + tok + '; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=' + days * 86400;
-}
-
-async function tooManyAttempts(env, ip) {
-  const since = Date.now() - 15 * 6e4;
-  await env.DB.prepare('DELETE FROM attempts WHERE ts<?').bind(since).run();
-  const r = await env.DB.prepare('SELECT COUNT(*) c FROM attempts WHERE ip=? AND ts>?').bind(ip, since).first();
-  return r.c >= 10;
-}
-const noteAttempt = (env, ip) =>
-  env.DB.prepare('INSERT INTO attempts(ip,ts) VALUES(?,?)').bind(ip, Date.now()).run();
-
-async function readBody(req) {
-  try { return await req.json(); } catch { return null; }
-}
 
 async function register(req, env, ip) {
   const b = await readBody(req);
