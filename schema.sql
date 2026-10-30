@@ -109,7 +109,8 @@ CREATE TABLE IF NOT EXISTS user_reports (
   reason TEXT NOT NULL,
   ctx TEXT,
   ts INTEGER NOT NULL,
-  done INTEGER NOT NULL DEFAULT 0
+  done INTEGER NOT NULL DEFAULT 0,
+  hidden INTEGER NOT NULL DEFAULT 0     -- 1 = أخفاه المالك عن المشرفين (يراه المالك وحده)
 );
 
 -- المرحلة 5: التفاعلات والاستطلاعات والتثبيت
@@ -163,7 +164,8 @@ CREATE TABLE IF NOT EXISTS mod_log (
   target_id INTEGER,
   target_name TEXT,
   detail TEXT,
-  ts INTEGER NOT NULL
+  ts INTEGER NOT NULL,
+  hidden INTEGER NOT NULL DEFAULT 0     -- 1 = أخفاه المالك عن المشرفين (يراه المالك وحده)
 );
 CREATE INDEX IF NOT EXISTS idx_modlog_ts ON mod_log(ts);
 
@@ -233,6 +235,7 @@ CREATE TABLE IF NOT EXISTS visits (
   target_id INTEGER NOT NULL,           -- صاحب الملف
   visitor_id INTEGER NOT NULL,
   ts INTEGER NOT NULL,                  -- آخر زيارة
+  nts INTEGER NOT NULL DEFAULT 0,       -- آخر إشعار زيارة أُرسل لصاحب الملف (مرة كل 24 ساعة)
   PRIMARY KEY (target_id, visitor_id)
 );
 CREATE INDEX IF NOT EXISTS idx_visits_target ON visits(target_id, ts);
@@ -249,4 +252,76 @@ CREATE TABLE IF NOT EXISTS announcements (
   text TEXT NOT NULL,                   -- حتى 200 حرف
   dur INTEGER NOT NULL,                 -- مدة الظهور بالثواني (10 إلى 20)
   ts INTEGER NOT NULL
+);
+
+-- المرحلة 6و: حظر الجهاز/IP (بصمة العنوان فقط، بمدة إلزامية وبلا سقف) + اقتراحات الحظر + التظلّمات
+CREATE TABLE IF NOT EXISTS ip_bans (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ip_hash TEXT NOT NULL,                -- بصمة SHA-256 للعنوان (لا يُحفظ العنوان نفسه هنا)
+  target_id INTEGER,                    -- الحساب الذي بُني عليه الحظر
+  target_name TEXT,
+  reason TEXT,
+  by_id INTEGER NOT NULL,
+  by_name TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  until INTEGER NOT NULL,               -- إلزامي: لا حظر جهاز دائم
+  active INTEGER NOT NULL DEFAULT 1,
+  lifted_by INTEGER,
+  lifted_ts INTEGER
+);
+CREATE INDEX IF NOT EXISTS idx_ipban_h ON ip_bans(ip_hash, active);
+CREATE TABLE IF NOT EXISTS ban_props (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  target_id INTEGER NOT NULL,
+  target_name TEXT NOT NULL,
+  by_id INTEGER NOT NULL,               -- المقترِح
+  by_name TEXT NOT NULL,
+  reason TEXT NOT NULL,
+  minutes INTEGER NOT NULL,             -- المدة المقترحة
+  kind TEXT NOT NULL,                   -- ban | ipban
+  ts INTEGER NOT NULL,
+  state INTEGER NOT NULL DEFAULT 0,     -- 0 معلّق | 1 معتمد | 2 مرفوض
+  rev_id INTEGER, rev_name TEXT, rev_ts INTEGER, rev_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_props_state ON ban_props(state, id);
+CREATE TABLE IF NOT EXISTS appeals (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  user_id INTEGER NOT NULL,
+  user_name TEXT NOT NULL,
+  sanc_id INTEGER NOT NULL,             -- رقم العقوبة (في sanctions أو ip_bans حسب النوع)
+  sanc_kind TEXT NOT NULL,              -- ban | mute | kick | revoke | nopm | slow | ipban
+  sanc_by TEXT, sanc_reason TEXT, sanc_until INTEGER,
+  text TEXT NOT NULL,
+  ts INTEGER NOT NULL,
+  state INTEGER NOT NULL DEFAULT 0,     -- 0 معلّق | 1 مقبول (رُفعت العقوبة) | 2 مرفوض | 3 أُغلق (انتهت العقوبة)
+  rev_id INTEGER, rev_name TEXT, rev_ts INTEGER, rev_note TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_appeals_state ON appeals(state, id);
+CREATE INDEX IF NOT EXISTS idx_appeals_user ON appeals(user_id, ts);
+
+-- تغيير الاسم: بعد إجبار تغيير عام يُسجَّل صف في sanctions بنوع rename (مهلة 7 أيام) يتيح لصاحبه اختيار اسم جديد مرة واحدة
+
+-- وضع الطوارئ: صف واحد فقط (id=1). وجوده = كل الغرف للقراءة فقط لمن مستواه أقل من 4. حذفه = إنهاء الوضع
+CREATE TABLE IF NOT EXISTS emergency (
+  id INTEGER PRIMARY KEY CHECK (id = 1),
+  by_id INTEGER NOT NULL,               -- من فعّله
+  by_name TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+
+-- الكلمات الممنوعة: تُفحص بها رسائل الغرف في الخادم (act: delete | warn | mute)
+CREATE TABLE IF NOT EXISTS watch_words (
+  id INTEGER PRIMARY KEY AUTOINCREMENT,
+  word TEXT NOT NULL UNIQUE,            -- بعد توحيد الهمزات وحذف التشكيل
+  act TEXT NOT NULL,                    -- delete = لا تُنشر | warn = لا تُنشر + تحذير | mute = لا تُنشر + كتم
+  by_id INTEGER NOT NULL,               -- آخر من أضافها أو عدّلها (0 = النظام)
+  by_name TEXT NOT NULL,
+  ts INTEGER NOT NULL
+);
+-- أعلام عامة للموقع: ww_lock = 1 يمنع كل من عدا صاحب الموقع من تعديل الكلمات الممنوعة | ww_seeded = أُضيفت الكلمات الأولية
+CREATE TABLE IF NOT EXISTS site_flags (
+  k TEXT PRIMARY KEY,
+  v INTEGER NOT NULL DEFAULT 0,
+  by_id INTEGER,
+  ts INTEGER
 );
