@@ -270,6 +270,7 @@ function ensureSchema(env) {
 const MIG = {
   messages: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['kind', 'TEXT'], ['pl', 'TEXT'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0']],
   visits: [['nts', 'INTEGER NOT NULL DEFAULT 0']],
+  ip_bans: [['target_id', 'INTEGER'], ['target_name', 'TEXT']],
   mod_log: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
   user_reports: [['hidden', 'INTEGER NOT NULL DEFAULT 0']],
   pms: [['ed', 'INTEGER'], ['del', 'INTEGER NOT NULL DEFAULT 0'], ['orig', 'TEXT'], ['upd', 'INTEGER NOT NULL DEFAULT 0'], ['del_from', 'INTEGER NOT NULL DEFAULT 0'], ['del_to', 'INTEGER NOT NULL DEFAULT 0']],
