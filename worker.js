@@ -43,7 +43,7 @@ function canMod(a, t, min) {
   if (t.role === 'owner') return false;
   return lvOf(a) >= min && pwOf(a) > pwOf(t);
 }
-const DEBUG = false;       // true يُظهر سبب خطأ الخادم للتشخيص فقط
+const DEBUG = true;       // true يُظهر سبب خطأ الخادم للتشخيص فقط
 
 const json = (data, status = 200, headers = {}) =>
   new Response(JSON.stringify(data), {
