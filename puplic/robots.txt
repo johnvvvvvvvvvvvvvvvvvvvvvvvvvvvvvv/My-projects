@@ -1,6 +1,0 @@
-User-agent: *
-Allow: /
-Disallow: /api/
-Disallow: /chat.html
-
-Sitemap: https://chat.a7la.workers.dev/sitemap.xml
