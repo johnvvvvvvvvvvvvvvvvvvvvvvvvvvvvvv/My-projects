@@ -1456,6 +1456,7 @@ async function postMsg(req, env) {
   await env.DB.prepare(
     'INSERT INTO presence(user_id,room,ts) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET room=excluded.room, ts=excluded.ts'
   ).bind(u.id, room, now).run();
+  if (!kind) await env.DB.prepare('INSERT INTO user_stats(user_id,msgs) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET msgs=msgs+1').bind(u.id).run();
   await cleanup(env);
   return json({ ok: true, id: ins.meta.last_row_id, ts: now, kind });
 }
@@ -1852,6 +1853,251 @@ async function announceSend(req, env) {
   return json({ ok: true, ann: { id: rs[0].meta.last_row_id, text, dur, ts: now, by: u.id, name: u.name, role: u.role, rank: u.rank || 0, iv: f.iv || 0 } });
 }
 
+// ---------- الأخبار ----------
+// القراءة لكل مستخدم مسجّل. النشر والحذف للمشرف العام فأعلى (lvBase >= 4) وغير المسحوب الصلاحيات، ويُفحص هنا لا في المتصفح.
+const canNews = (u) => !u.rv && lvBase(u) >= 4;
+const NEWS_TITLE_MAX = 80;
+const NEWS_TEXT_MAX = 500;
+const NEWS_GAP = 10000;     // أدنى فاصل بين خبرين من الناشر نفسه
+const NEWS_SHOW = 30;
+async function newsList(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const rows = (await env.DB.prepare('SELECT id,title,text,ts,by_name FROM news ORDER BY id DESC LIMIT ' + NEWS_SHOW).all()).results;
+  return json({ ok: true, list: rows });
+}
+async function newsPost(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (!canNews(u)) return json({ error: 'نشر الأخبار للمشرف العام وما فوق' }, 403);
+  const b = await readBody(req);
+  if (!b) return json({ error: 'طلب غير صالح' }, 400);
+  const title = cleanText(b.title).replace(/\s+/g, ' ').slice(0, NEWS_TITLE_MAX);
+  const text = cleanText(b.text).slice(0, NEWS_TEXT_MAX);
+  if (!title) return json({ error: 'اكتب عنوان الخبر' }, 400);
+  const now = Date.now();
+  const last = await env.DB.prepare('SELECT MAX(ts) m FROM news WHERE by_id=?').bind(u.id).first();
+  if (last && last.m && now - last.m < NEWS_GAP) return json({ error: 'انتظر قليلاً قبل نشر خبر آخر' }, 429);
+  const rs = await env.DB.batch([
+    env.DB.prepare('INSERT INTO news(by_id,by_name,title,text,ts) VALUES(?,?,?,?,?)').bind(u.id, u.name, title, text, now),
+    logStmt(env, u, 'news', null, title, now),
+  ]);
+  return json({ ok: true, item: { id: rs[0].meta.last_row_id, title, text, ts: now, by_name: u.name } });
+}
+async function newsDel(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (!canNews(u)) return json({ error: 'حذف الأخبار للمشرف العام وما فوق' }, 403);
+  const b = await readBody(req);
+  const id = parseInt(b && b.id, 10) || 0;
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  const row = await env.DB.prepare('SELECT title FROM news WHERE id=?').bind(id).first();
+  if (!row) return json({ error: 'الخبر غير موجود' }, 404);
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM news WHERE id=?').bind(id),
+    logStmt(env, u, 'newsdel', null, row.title, Date.now()),
+  ]);
+  return json({ ok: true });
+}
+
+// ---------- الشارات ----------
+// تُحسب كلها في الخادم من بيانات حقيقية (عدّاد الرسائل مخزَّن في user_stats ولا يضيع بحذف الرسائل القديمة)
+const BADGES = [
+  ['msg1', '💬', 'أول رسالة', 'msgs', 1], ['msg100', '🗣️', '100 رسالة', 'msgs', 100], ['msg1000', '👑', '1000 رسالة', 'msgs', 1000],
+  ['age7', '🌱', 'أسبوع في الموقع', 'days', 7], ['age30', '🌿', 'شهر في الموقع', 'days', 30], ['age365', '🎂', 'عضو منذ سنة', 'days', 365],
+  ['fr5', '👥', '5 أصدقاء', 'friends', 5], ['gift5', '🎁', 'استلم 5 هدايا', 'gifts', 5], ['like10', '❤️', '10 إعجابات', 'likes', 10],
+];
+async function badgeGet(req, env, url) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const id = parseInt(url.searchParams.get('id'), 10) || u.id;
+  const t = await env.DB.prepare('SELECT id,created_at FROM users WHERE id=?').bind(id).first();
+  if (!t) return json({ error: 'المستخدم غير موجود' }, 404);
+  const rs = await env.DB.batch([
+    env.DB.prepare('SELECT msgs FROM user_stats WHERE user_id=?').bind(id),
+    env.DB.prepare('SELECT COUNT(*) n FROM friendships WHERE user_id=?').bind(id),
+    env.DB.prepare('SELECT COUNT(*) n FROM gifts WHERE to_id=?').bind(id),
+    env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE target_id=?').bind(id),
+  ]);
+  const st = {
+    msgs: rs[0].results[0] ? rs[0].results[0].msgs : 0,
+    friends: rs[1].results[0].n, gifts: rs[2].results[0].n, likes: rs[3].results[0].n,
+    days: Math.floor((Date.now() - (t.created_at || Date.now())) / DAY),
+  };
+  return json({ ok: true, msgs: st.msgs, list: BADGES.map(([k, e, n, f, need]) => ({ k, e, n, ok: st[f] >= need, have: Math.min(st[f], need), need })) });
+}
+
+// ---------- رسائل الصراحة ----------
+// المرسل لا يُكشف أبداً في أي رد. يصل المشرفون إليه فقط عبر البلاغ (user_reports).
+const CONF_MAX = 200;
+const CONF_GAP = 10000;
+const CONF_DAY_MAX = 30;
+async function confList(req, env, url) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const to = parseInt(url.searchParams.get('id'), 10) || 0;
+  if (!to) return json({ error: 'طلب غير صالح' }, 400);
+  const rows = (await env.DB.prepare(
+    'SELECT id,text,ts FROM confs WHERE to_id=? AND from_id NOT IN (SELECT target_id FROM ignores WHERE user_id=?) AND from_id NOT IN (SELECT from_id FROM conf_blocks WHERE user_id=?) ORDER BY id DESC LIMIT 50'
+  ).bind(to, u.id, to).all()).results;
+  return json({ ok: true, list: rows });
+}
+async function confSend(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  if (u.role === 'visitor') return json({ error: 'الزائر لا يستطيع الإرسال' }, 403);
+  const b = await readBody(req);
+  const to = b ? parseInt(b.to, 10) : 0;
+  if (!to || to === u.id) return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  const mt = await activeSanction(env, u.id, 'mute', null, now);
+  if (mt) return json({ error: sancMsg('mute', mt, now) }, 403);
+  const text = cleanText(b.text).replace(/\s+/g, ' ').slice(0, CONF_MAX);
+  if (!text) return json({ error: 'اكتب الرسالة' }, 400);
+  const t = await env.DB.prepare('SELECT id,role FROM users WHERE id=?').bind(to).first();
+  if (!t) return json({ error: 'المستخدم غير موجود' }, 404);
+  if (t.role === 'visitor') return json({ error: 'لا يمكن الإرسال إلى زائر' }, 400);
+  const c = await env.DB.prepare('SELECT SUM(CASE WHEN ts>? THEN 1 ELSE 0 END) g, COUNT(*) d FROM confs WHERE from_id=? AND ts>?').bind(now - CONF_GAP, u.id, now - DAY).first();
+  if (c.g > 0) return json({ error: 'انتظر قليلاً' }, 429);
+  if (c.d >= CONF_DAY_MAX) return json({ error: 'وصلت للحد اليومي لرسائل الصراحة' }, 429);
+  const wh = await wwCheck(env, u, text);
+  if (wh) return await wwApply(env, u, wh, now);
+  // المحظور من المستلم: نردّ بالنجاح دون حفظ، حتى لا يعرف المرسل أنه محظور
+  const bl = await env.DB.prepare('SELECT 1 x FROM conf_blocks WHERE user_id=? AND from_id=?').bind(to, u.id).first();
+  if (bl) return json({ ok: true, item: { id: 0, text, ts: now } });
+  const r = await env.DB.prepare('INSERT INTO confs(to_id,from_id,text,ts) VALUES(?,?,?,?)').bind(to, u.id, text, now).run();
+  return json({ ok: true, item: { id: r.meta.last_row_id, text, ts: now } });
+}
+async function confDel(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  if (!id) return json({ error: 'طلب غير صالح' }, 400);
+  await env.DB.prepare('DELETE FROM confs WHERE id=? AND to_id=?').bind(id, u.id).run();
+  return json({ ok: true });
+}
+async function confBlock(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const m = id ? await env.DB.prepare('SELECT from_id FROM confs WHERE id=? AND to_id=?').bind(id, u.id).first() : null;
+  if (!m) return json({ error: 'الرسالة غير موجودة' }, 404);
+  await env.DB.batch([
+    env.DB.prepare('INSERT OR IGNORE INTO conf_blocks(user_id,from_id) VALUES(?,?)').bind(u.id, m.from_id),
+    env.DB.prepare('DELETE FROM confs WHERE to_id=? AND from_id=?').bind(u.id, m.from_id),
+  ]);
+  return json({ ok: true });
+}
+async function confReport(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
+  const b = await readBody(req);
+  const id = b ? parseInt(b.id, 10) : 0;
+  const m = id ? await env.DB.prepare('SELECT from_id,text FROM confs WHERE id=?').bind(id).first() : null;
+  if (!m) return json({ error: 'الرسالة غير موجودة' }, 404);
+  if (m.from_id === u.id) return json({ error: 'طلب غير صالح' }, 400);
+  const now = Date.now();
+  const r = await env.DB.prepare('SELECT COUNT(*) c FROM user_reports WHERE reporter_id=? AND ts>?').bind(u.id, now - 6e4).first();
+  if (r.c >= 5) return json({ error: 'أبطئ قليلاً، بلاغات كثيرة' }, 429);
+  await env.DB.prepare('INSERT INTO user_reports(reporter_id,target_id,reason,ctx,ts) VALUES(?,?,?,?,?)')
+    .bind(u.id, m.from_id, ('رسالة صراحة: «' + m.text + '»').slice(0, 200), 'conf', now).run();
+  return json({ ok: true });
+}
+
+// ---------- اطلاع المالك على الخاص ----------
+// للمالك فقط. القائمة لا تحمل نصوصاً. فتح أي محادثة يتطلب سبباً ويُسجَّل في spy_log وفي سجل الإدارة.
+// ما يراه المالك: الصفوف الموجودة فعلاً. «مسح المحادثة من عندي» يخفيها عن صاحبها فقط وتبقى للمالك حتى يمسحها الطرفان أو تنتهي مدة الحفظ.
+// أما حذف رسالة بعينها فيُتلف نصها في الخادم (يبقى أثر «حُذفت» فقط)، والرسائل المؤقتة تختفي بانتهاء وقتها.
+const SPY_REASONS = ['بلاغ', 'اشتباه', 'مراجعة دورية'];
+const SPY_SUS = "(p.text LIKE '%http%' OR p.text LIKE '%www.%' OR p.text GLOB '*[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9]*')";
+const spyPair = (x, y) => { x = parseInt(x, 10) || 0; y = parseInt(y, 10) || 0; return x && y && x !== y ? [Math.min(x, y), Math.max(x, y)] : null; };
+async function spyUsers(env, ids) {
+  ids = [...new Set(ids)];
+  if (!ids.length) return {};
+  const rows = (await env.DB.prepare('SELECT id,name,role,rank FROM users WHERE id IN (' + ids.map(() => '?').join(',') + ')').bind(...ids).all()).results;
+  const o = {}; rows.forEach((r) => { o[r.id] = r; }); return o;
+}
+async function spyOwner(req, env) {
+  const u = await currentUser(req, env);
+  if (!u) return { res: json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401) };
+  if (u.role !== 'owner') return { res: json({ error: 'للمالك فقط' }, 403) };
+  return { u };
+}
+async function spyListH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const rows = (await env.DB.prepare(
+    'SELECT MIN(p.from_id,p.to_id) a, MAX(p.from_id,p.to_id) b, COUNT(*) n, MAX(p.ts) last, SUM(CASE WHEN p.del=0 AND ' + SPY_SUS + ' THEN 1 ELSE 0 END) sus '
+    + 'FROM pms p GROUP BY MIN(p.from_id,p.to_id), MAX(p.from_id,p.to_id) ORDER BY last DESC LIMIT 300'
+  ).all()).results;
+  const us = await spyUsers(env, rows.flatMap((r) => [r.a, r.b]));
+  const meta = {};
+  (await env.DB.prepare('SELECT a_id,b_id,flag,seen FROM spy_meta').all()).results.forEach((m) => { meta[m.a_id + '_' + m.b_id] = m; });
+  const list = rows.filter((r) => us[r.a] && us[r.b]).map((r) => {
+    const m = meta[r.a + '_' + r.b] || {};
+    return { a: us[r.a], b: us[r.b], n: r.n, last: r.last, sus: r.sus || 0, flag: m.flag || 0, seen: m.seen || 0 };
+  });
+  return json({ ok: true, list });
+}
+async function spyOpenH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const b = await readBody(req);
+  const pr = b && spyPair(b.a, b.b);
+  if (!pr) return json({ error: 'طلب غير صالح' }, 400);
+  const reason = String(b.reason || '');
+  if (!SPY_REASONS.includes(reason)) return json({ error: 'اختر سبب الاطلاع' }, 400);
+  const us = await spyUsers(env, pr);
+  if (!us[pr[0]] || !us[pr[1]]) return json({ error: 'المستخدم غير موجود' }, 404);
+  const rs = await env.DB.batch([
+    env.DB.prepare('SELECT id,from_id,text,ts,ed,del,orig,del_from,del_to,exp FROM pms WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?) ORDER BY id DESC LIMIT 300').bind(pr[0], pr[1], pr[1], pr[0]),
+    env.DB.prepare('SELECT id,text,ts FROM spy_notes WHERE a_id=? AND b_id=? ORDER BY id').bind(pr[0], pr[1]),
+    env.DB.prepare('SELECT flag FROM spy_meta WHERE a_id=? AND b_id=?').bind(pr[0], pr[1]),
+  ]);
+  const now = Date.now(), A = us[pr[0]], B = us[pr[1]];
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO spy_log(owner_id,a_id,b_id,a_name,b_name,reason,ts) VALUES(?,?,?,?,?,?,?)').bind(g.u.id, A.id, B.id, A.name, B.name, reason, now),
+    env.DB.prepare('INSERT INTO spy_meta(a_id,b_id,flag,seen) VALUES(?,?,0,?) ON CONFLICT(a_id,b_id) DO UPDATE SET seen=excluded.seen').bind(A.id, B.id, now),
+    logStmt(env, g.u, 'spy', A, B.name + ' | ' + reason, now),
+  ]);
+  return json({ ok: true, a: A, b: B, flag: rs[2].results[0] ? rs[2].results[0].flag : 0, notes: rs[1].results, msgs: rs[0].results.reverse() });
+}
+async function spyFlagH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const b = await readBody(req); const pr = b && spyPair(b.a, b.b);
+  if (!pr) return json({ error: 'طلب غير صالح' }, 400);
+  await env.DB.prepare('INSERT INTO spy_meta(a_id,b_id,flag,seen) VALUES(?,?,?,0) ON CONFLICT(a_id,b_id) DO UPDATE SET flag=excluded.flag').bind(pr[0], pr[1], b.flag ? 1 : 0).run();
+  return json({ ok: true, flag: b.flag ? 1 : 0 });
+}
+async function spyNoteH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const b = await readBody(req); const pr = b && spyPair(b.a, b.b);
+  const text = cleanText(b && b.text).slice(0, 300);
+  if (!pr || !text) return json({ error: 'اكتب الملاحظة' }, 400);
+  const c = await env.DB.prepare('SELECT COUNT(*) n FROM spy_notes WHERE a_id=? AND b_id=?').bind(pr[0], pr[1]).first();
+  if (c.n >= 50) return json({ error: 'وصلت للحد الأقصى من الملاحظات' }, 400);
+  const now = Date.now();
+  const r = await env.DB.prepare('INSERT INTO spy_notes(a_id,b_id,text,ts) VALUES(?,?,?,?)').bind(pr[0], pr[1], text, now).run();
+  return json({ ok: true, note: { id: r.meta.last_row_id, text, ts: now } });
+}
+async function spyReviewH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const b = await readBody(req); const pr = b && spyPair(b.a, b.b);
+  if (!pr) return json({ error: 'طلب غير صالح' }, 400);
+  await env.DB.prepare('INSERT INTO spy_meta(a_id,b_id,flag,seen) VALUES(?,?,0,?) ON CONFLICT(a_id,b_id) DO UPDATE SET seen=excluded.seen').bind(pr[0], pr[1], Date.now()).run();
+  return json({ ok: true });
+}
+async function spyLogH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  const rows = (await env.DB.prepare('SELECT id,a_name,b_name,reason,ts FROM spy_log WHERE hidden=0 ORDER BY id DESC LIMIT 100').all()).results;
+  return json({ ok: true, list: rows });
+}
+async function spyLogClearH(req, env) {
+  const g = await spyOwner(req, env); if (g.res) return g.res;
+  await env.DB.prepare('UPDATE spy_log SET hidden=1').run();
+  return json({ ok: true });
+}
+
 // ---------- المرحلة 6و: حظر الجهاز / IP + اقتراح الحظر + التظلّمات ----------
 // لا يوجد حظر دائم: كل حظر بمدة إلزامية. وحظر الجهاز بلا سقف أقصى للمدة (الحد الوحيد حدّ الوقت التقني).
 const MAX_TS = 8.64e15;           // أقصى وقت يقبله Date
@@ -2166,9 +2412,11 @@ export default {
         '/api/mod/rename': modRename, '/api/mod/move': modMove, '/api/room/mod': roomModSet, '/api/room/mode': roomModeSet, '/api/mod/emergency': emergencySet, '/api/ww/list': wwList, '/api/ww/save': wwSave, '/api/ww/del': wwDel, '/api/ww/lock': wwLock, '/api/owner/log/del': ownerLogDel, '/api/owner/report/del': ownerReportDel, '/api/owner/log/hide': ownerLogHide, '/api/owner/report/hide': ownerReportHide, '/api/mod/report/done': modReportDone, '/api/mod/note': modNote,
         '/api/mod/delmsg': (rq, ev) => modDelMsgs(rq, ev, 'delmsg'), '/api/mod/wipe': (rq, ev) => modDelMsgs(rq, ev, 'wipe'),
         '/api/mod/tempban': (rq, ev) => modApply(rq, ev, 'ban', 'tempban'),
-        '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/mod/ipban': modIpBan, '/api/mod/unipban': modIpLift, '/api/mod/propose': modPropose, '/api/mod/prop/review': modPropReview, '/api/mod/appeal/review': modAppealReview, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/gift/delete': giftDelete, '/api/name/change': nameChange, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend });
+        '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/mod/ipban': modIpBan, '/api/mod/unipban': modIpLift, '/api/mod/propose': modPropose, '/api/mod/prop/review': modPropReview, '/api/mod/appeal/review': modAppealReview, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/gift/delete': giftDelete, '/api/name/change': nameChange, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend, '/api/news/post': newsPost, '/api/news/del': newsDel,
+        '/api/conf/send': confSend, '/api/conf/del': confDel, '/api/conf/block': confBlock, '/api/conf/report': confReport,
+        '/api/spy/open': spyOpenH, '/api/spy/flag': spyFlagH, '/api/spy/note': spyNoteH, '/api/spy/review': spyReviewH, '/api/spy/log/clear': spyLogClearH });
       const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
-      const PF_GET = { '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet };
+      const PF_GET = { '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);
