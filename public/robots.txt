@@ -1,0 +1,6 @@
+User-agent: *
+Allow: /
+Disallow: /api/
+Disallow: /chat.html
+
+Sitemap: https://YOUR-DOMAIN.com/sitemap.xml
