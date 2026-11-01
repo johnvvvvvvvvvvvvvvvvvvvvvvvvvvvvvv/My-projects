@@ -63,6 +63,11 @@ function ensureDatabase(env, seedWatchWords) {
       env.DB.prepare('CREATE TABLE IF NOT EXISTS watch_words(id INTEGER PRIMARY KEY AUTOINCREMENT, word TEXT NOT NULL UNIQUE, act TEXT NOT NULL, by_id INTEGER NOT NULL, by_name TEXT NOT NULL, ts INTEGER NOT NULL)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS site_flags(k TEXT PRIMARY KEY, v INTEGER NOT NULL DEFAULT 0, by_id INTEGER, ts INTEGER)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS emergency(id INTEGER PRIMARY KEY CHECK(id=1), by_id INTEGER NOT NULL, by_name TEXT NOT NULL, ts INTEGER NOT NULL)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS shop_state(user_id INTEGER PRIMARY KEY, coins INTEGER NOT NULL DEFAULT 0, ver INTEGER NOT NULL DEFAULT 0, data TEXT NOT NULL, upd INTEGER NOT NULL DEFAULT 0)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS shop_extra(id TEXT PRIMARY KEY, t TEXT NOT NULL, n TEXT NOT NULL, v TEXT NOT NULL, p INTEGER NOT NULL, r TEXT NOT NULL, ts INTEGER NOT NULL)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS shop_hidden(item_id TEXT PRIMARY KEY)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS shop_sales(item_id TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
+      env.DB.prepare('CREATE TABLE IF NOT EXISTS user_settings(user_id INTEGER PRIMARY KEY, st TEXT, pf TEXT, upd INTEGER NOT NULL DEFAULT 0)'),
     ]).then(() => migrate(env)).then(() => verifySchema(env)).then(() => seedWatchWords(env)).catch((e) => { schemaP = null; throw e; });
   }
   return schemaP;
@@ -167,6 +172,11 @@ const WANT = {
   emergency: ['id', 'by_id', 'by_name', 'ts'],
   watch_words: ['id', 'word', 'act', 'by_id', 'by_name', 'ts'],
   site_flags: ['k', 'v', 'by_id', 'ts'],
+  shop_state: ['user_id', 'coins', 'ver', 'data', 'upd'],
+  shop_extra: ['id', 't', 'n', 'v', 'p', 'r', 'ts'],
+  shop_hidden: ['item_id'],
+  shop_sales: ['item_id', 'n'],
+  user_settings: ['user_id', 'st', 'pf', 'upd'],
 };
 async function verifySchema(env) {
   for (const t of Object.keys(WANT)) {
