@@ -21,6 +21,7 @@ import {
   hex, rand, sha256, hashPass, getCookie, currentUser, startSession,
   tooManyAttempts, noteAttempt,
 } from './src/security.js';
+import { shopState, settingsGet, SHOP_POST } from './src/store.js';
 
 
 async function register(req, env, ip) {
@@ -1717,7 +1718,7 @@ async function likeSet(req, env) {
 }
 
 // ---------- المرحلة 7ج: الهدايا ----------
-// ترتيب القائمة هو رقم الهدية (يرسل المتصفح الرقم فقط، والخادم يحدّد الرمز والاسم). الهدايا مجانية حالياً حتى ينتقل المتجر للخادم
+// ترتيب القائمة هو رقم الهدية (يرسل المتصفح الرقم فقط، والخادم يحدّد الرمز والاسم). الهدايا مجانية حالياً (المتجر نفسه صار على الخادم في src/store.js)
 const GIFT_LIST = [['🌹', 'وردة'], ['🏆', 'كأس'], ['💎', 'ألماس'], ['🎂', 'كعكة'], ['☕', 'قهوة'], ['🧸', 'دبدوب'], ['👑', 'تاج'], ['⭐', 'نجمة']];
 const GIFT_DAY = 30;      // أقصى عدد هدايا يرسلها المستخدم في اليوم
 const GIFT_GAP = 3000;    // أدنى فاصل بين هديتين
@@ -2396,7 +2397,7 @@ export default {
         await ensureSchema(env);
         return url.pathname === '/api/appeal' ? await appealSend(req, env, ip) : await appealStatus(req, env, ip);
       }
-      const SOC_POST = { '/api/friend/request': friendRequest, '/api/friend/accept': friendAccept, '/api/friend/decline': friendDecline,
+      const SOC_POST = { ...SHOP_POST, '/api/friend/request': friendRequest, '/api/friend/accept': friendAccept, '/api/friend/decline': friendDecline,
         '/api/friend/remove': friendRemove, '/api/notif/read': notifRead, '/api/ignore/set': ignoreSet, '/api/prefs/set': prefsSet, '/api/report': reportUser };
       Object.assign(SOC_POST, { '/api/msg/edit': msgEdit, '/api/msg/delete': msgDelete, '/api/msg/react': msgReact, '/api/msg/vote': msgVote,
         '/api/pin/set': pinSet, '/api/pin/clear': pinClear, '/api/pm/clear': pmClear });
@@ -2416,7 +2417,7 @@ export default {
         '/api/conf/send': confSend, '/api/conf/del': confDel, '/api/conf/block': confBlock, '/api/conf/report': confReport,
         '/api/spy/open': spyOpenH, '/api/spy/flag': spyFlagH, '/api/spy/note': spyNoteH, '/api/spy/review': spyReviewH, '/api/spy/log/clear': spyLogClearH });
       const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
-      const PF_GET = { '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
+      const PF_GET = { '/api/shop/state': shopState, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);
