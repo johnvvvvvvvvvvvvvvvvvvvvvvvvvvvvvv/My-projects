@@ -208,7 +208,7 @@ function showAnn(a,rem){var d=$('ann');d.textContent='';var u=mkUser({id:a.by,na
 var t=el('div','at'),hd=el('div','ah');hd.appendChild(el('b','','📣 '+(a.name||'إعلان')));hd.appendChild(el('span','bd',badge(u)));t.appendChild(hd);t.appendChild(el('div','atx',a.text));
 var x=el('button','ax','✕');x.onclick=function(){d.classList.remove('show')};var p=el('div','ap');p.style.animationDuration=rem+'ms';
 d.appendChild(av(u));d.appendChild(t);d.appendChild(x);d.appendChild(p);d.classList.remove('show');void d.offsetWidth;d.classList.add('show');clearTimeout(d.h);d.h=setTimeout(function(){d.classList.remove('show')},rem)}
-function drawPin(){var p=$('pin');p.textContent='';if(!pins[room])return;p.appendChild(el('span','','📌 '+pins[room]));if(lv(me)>=3){var x=el('button','g','×');x.onclick=function(){var rm=room;soc('pin/clear',{room:rm},function(r){if(r.j&&r.j.ok){delete pins[rm];if(rm===room)drawPin()}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر إلغاء التثبيت'))})};p.appendChild(x)}}
+function drawPin(){drawTopic();var p=$('pin');p.textContent='';if(!pins[room])return;p.appendChild(el('span','','📌 '+pins[room]));if(lv(me)>=3){var x=el('button','g','×');x.onclick=function(){var rm=room;soc('pin/clear',{room:rm},function(r){if(r.j&&r.j.ok){delete pins[rm];if(rm===room)drawPin()}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر إلغاء التثبيت'))})};p.appendChild(x)}}
 function notesView(){var s=head('الإشعارات');if(!notes.length)s.appendChild(el('small','mu','لا توجد إشعارات.'));
 notes.forEach(function(x){var c=el('div','nw');c.appendChild(el('div','',NI[x.ty]+' '+x.t));c.appendChild(el('small','mu',ago(x.ts)));
 if(x.ty==='req'&&!x.done){var a=el('button','','قبول'),d=el('button','g','رفض');a.onclick=function(){soc('friend/accept',{from:x.uid},function(r){if(r.j&&r.j.ok){x.done=1;fr[x.uid]=1;toast('👥 أصبحت صديقاً لـ '+uname(x.uid));drawUsers()}else{if(r.s===404)x.done=1;toast('⚠️ '+((r.j&&r.j.error)||'تعذر القبول'))}notesView()})};d.onclick=function(){soc('friend/decline',{from:x.uid},function(){x.done=1;notesView()})};c.appendChild(a);c.appendChild(d)}
@@ -230,7 +230,7 @@ function grow(){var t=$('txt');t.style.height='auto';t.style.height=Math.min(t.s
 function addLog(t){logs.unshift(new Date().toLocaleTimeString('ar')+' — '+t);}
 window.alert=function(t){toast('⚠️ '+t)};
 function ask(title,fs,cb){var p=$('dl');p.textContent='';var c=el('div','c');c.style.cssText='padding:16px;display:grid;gap:8px';c.appendChild(el('b','',title));var ins={};
-fs.forEach(function(f){c.appendChild(el('small','mu',f.l));var i=el('input');i.type=f.t||'text';if(f.t==='number'){i.min=f.min||0;if(f.max)i.max=f.max}i.value=f.v==null?'':f.v;ins[f.k]=i;c.appendChild(i)});
+fs.forEach(function(f){c.appendChild(el('small','mu',f.l));var i=f.sel?el('select'):el('input');if(f.sel){f.sel.forEach(function(x){var op=el('option','',x);op.value=x;i.appendChild(op)})}else{i.type=f.t||'text';if(f.t==='number'){i.min=f.min||0;if(f.max)i.max=f.max}}i.value=f.v==null?'':f.v;ins[f.k]=i;c.appendChild(i)});
 var er=el('small','');er.style.color='#dc2626';c.appendChild(er);var r=el('div','');r.style.cssText='display:flex;gap:8px';var ok=el('button','','تأكيد'),no=el('button','g','إلغاء');no.onclick=function(){p.style.display='none'};
 ok.onclick=function(){var o={};for(var k in ins){var f=fs.filter(function(x){return x.k===k})[0],v=ins[k].value.trim();if(f.req!==false&&!v){er.textContent='الحقل مطلوب: '+f.l;return}
 if(f.t==='number'){v=parseInt(v,10);if(isNaN(v)||v<(f.min||0)||(f.max&&v>f.max)){er.textContent='قيمة غير صحيحة: '+f.l;return}}o[k]=v}p.style.display='none';cb(o)};
@@ -250,9 +250,32 @@ function menuView(){var s=head('القائمة');
 mi(s,'📰','الأخبار',newsView);mi(s,'👥','الأصدقاء',friendsView);mi(s,'👁️','من زار بروفايلي',visView);mi(s,'✉️','الرسائل الخاصة',pmView);
 if(canAnn())mi(s,'📣','إعلان',function(){ask('إعلان جديد',[{k:'t',l:'نص الإعلان'},{k:'d',l:'مدة الظهور بالثواني (10 إلى 20)',t:'number',v:15,min:10,max:20}],function(o){sdrawer(false);announce(o.t,o.d)})});
 if(lv(me)>=3)mi(s,'🔒','وضع الغرفة: '+(rmode[room]||'عادي'),function(){var o=['عادي','بطيء','للقراءة فقط'],cd=['normal','slow','ro'],rm=room,nx=o[(o.indexOf(rmode[rm]||'عادي')+1)%3];soc('room/mode',{room:rm,mode:cd[o.indexOf(nx)]},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تغيير وضع الغرفة'));return}if(nx==='عادي')delete rmode[rm];else rmode[rm]=nx;addLog(me.name+' غيّر وضع '+rm+' إلى '+nx);post(rm,0,'وضع الغرفة: '+nx,1);menuView()})});
+if(lv(me)>=3)mi(s,'🛠️','إدارة الغرفة',roomAdminView);
 mi(s,'⚙️','الإعدادات',setView);
 if(lv(me)>=5)mi(s,'📋','سجل الأكشنز',function(){sdrawer(false);showLog()});
 }
+/* ===== التحكم بالغرف: تنظيف | موضوع | للأعضاء فقط | منع الروابط | منع من غرفة ===== */
+var RSTATE={};
+function mkRS(){return{clr:0,topic:'',mo:0,nl:0,seen:0}}
+(function(){var pn=$('pin'),t=el('div','');t.id='rtopic';t.style.cssText='display:none;padding:6px 12px;font-size:13px;background:rgba(127,127,127,.12);border-bottom:1px solid rgba(127,127,127,.2)';pn.parentNode.insertBefore(t,pn)})();
+function drawTopic(){var t=$('rtopic');if(!t)return;t.textContent='';var o=RSTATE[room];if(o&&o.topic){t.appendChild(el('span','','📣 '+o.topic));t.style.display='block'}else t.style.display='none'}
+function applyRoom(j,rm){var o=RSTATE[rm]||(RSTATE[rm]=mkRS()),first=!o.seen;
+if(j.clr!==undefined){if(o.seen&&j.clr>o.clr){hist[rm]=[];if(rm===room)refresh()}o.clr=j.clr}
+var rf=j.rf||{};o.mo=rf.mo?1:0;o.nl=rf.nl?1:0;
+var tp=j.topic||'',ch=tp!==o.topic;o.topic=tp;o.seen=1;
+if(rm===room&&(ch||first))drawTopic()}
+function roomAdminView(){var s=head('إدارة الغرفة: '+room,1),rm=room,o=RSTATE[rm]||mkRS();
+mi(s,'🧹','تنظيف الغرفة (إخفاء الرسائل عن الجميع)',function(){if(!confirm('تنظيف غرفة '+rm+'؟ ستختفي الرسائل الحالية من شاشة الجميع، ولا تُحذف من قاعدة البيانات.'))return;soc('room/clear',{room:rm},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تنظيف الغرفة'));return}hist[rm]=[];(RSTATE[rm]||(RSTATE[rm]=mkRS())).clr=r.j.clr;if(rm===room)refresh();addLog(me.name+' نظّف غرفة '+rm);toast('🧹 تم تنظيف الغرفة')})});
+mi(s,'📣',o.topic?'تغيير موضوع الغرفة':'تعيين موضوع الغرفة',function(){ask('موضوع الغرفة',[{k:'t',l:'النص (اتركه فارغاً لإزالة الموضوع)',v:o.topic||'',req:false}],function(x){soc('room/topic',{room:rm,topic:x.t||''},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر حفظ الموضوع'));return}var q=RSTATE[rm]||(RSTATE[rm]=mkRS());q.topic=r.j.topic||'';if(rm===room)drawTopic();addLog(me.name+' غيّر موضوع غرفة '+rm)})})});
+mi(s,'👤','للأعضاء فقط: '+(o.mo?'مفعّل':'متوقف'),function(){roomFlagSet(rm,'members_only',!o.mo)});
+mi(s,'🔗','منع الروابط: '+(o.nl?'مفعّل':'متوقف'),function(){roomFlagSet(rm,'no_links',!o.nl)});
+mi(s,'🚫','الممنوعون من هذه الغرفة',function(){bansView(rm)})}
+function roomFlagSet(rm,key,on){soc('room/flag',{room:rm,key:key,on:on},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تغيير الخيار'));return}var o=RSTATE[rm]||(RSTATE[rm]=mkRS());if(key==='members_only')o.mo=on?1:0;else o.nl=on?1:0;addLog(me.name+' غيّر خيار '+(key==='members_only'?'للأعضاء فقط':'منع الروابط')+' في '+rm);roomAdminView()})}
+function roomBanAsk(t){ask('منع '+t.name+' من دخول غرفة',[{k:'rm',l:'الغرفة',sel:ROOMS,v:room},{k:'r',l:'السبب'},{k:'d',l:'المدة بالدقائق (مطلوبة)',t:'number',v:60,min:1}],function(o){soc('mod/roomban',{target:t.id,room:o.rm,minutes:o.d,reason:String(o.r||'').slice(0,200)},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تنفيذ المنع'));return}addLog('✅ مُنع '+t.name+' من دخول غرفة '+o.rm+' لمدة '+o.d+' دقيقة بواسطة '+me.name);toast('✅ تم منع '+t.name+' من غرفة '+o.rm)})})}
+function bansView(rm){var s=head('الممنوعون من غرفة '+rm,1),w=el('div');
+function draw(list){w.textContent='';list.forEach(function(b){var c=el('div','nw');c.appendChild(el('b','',b.name));c.appendChild(el('small','mu',(b.until?'حتى '+new Date(b.until).toLocaleString('ar'):'دائم')+(b.by_name?' · بواسطة '+b.by_name:'')+(b.reason?' · '+b.reason:'')));var x=el('button','','↩️ رفع المنع');x.style.marginTop='6px';x.onclick=function(){soc('mod/roomunban',{room:rm,target:b.user_id},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر رفع المنع'));return}addLog(me.name+' رفع منع '+b.name+' من غرفة '+rm);load()})};c.appendChild(x);w.appendChild(c)});if(!list.length)w.appendChild(el('small','mu','لا يوجد ممنوعون حالياً.'))}
+function load(){w.textContent='';w.appendChild(el('small','mu','جارٍ التحميل...'));sget('room/bans?room='+encodeURIComponent(rm),function(r){if(!(r.j&&r.j.ok)){errBox(w,r);return}draw(r.j.list||[])})}
+s.appendChild(w);load()}
 function newsView(){var s=head('الأخبار',1),w=el('div');
 function draw(){w.textContent='';NEWS.forEach(function(n){var c=el('div','nw');c.appendChild(el('b','',n.title));if(n.text)c.appendChild(el('div','',n.text));c.appendChild(el('small','mu',(n.by_name?n.by_name+' · ':'')+ago(n.ts)));
 if(lv(me)>=4&&!susp(me)){var x=el('button','','🗑️ حذف');x.style.marginTop='6px';x.onclick=function(){if(!confirm('حذف هذا الخبر؟'))return;soc('news/del',{id:n.id},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر حذف الخبر'));return}NEWS=NEWS.filter(function(o){return o.id!==n.id});draw()})};c.appendChild(x)}
@@ -330,7 +353,7 @@ function msgMenu(m,e,isPM){var mn=$('menu');mn.textContent='';var r=el('div','pk
 function it(l,f){var b=el('button','',l);b.onclick=function(){mn.style.display='none';f()};mn.appendChild(b)}
 it('↩️ رد',function(){rp={n:m.u.name,t:m.t.slice(0,60),id:m.id,pm:!!isPM};if(isPM){$('pi').placeholder='↩️ رد على '+m.u.name+': '+rp.t.slice(0,20);$('pi').focus()}else{var p=$('rp');p.style.display='flex';p.textContent='';p.appendChild(el('span','','↩️ رد على '+m.u.name+': '+rp.t));var x=el('button','g','×');x.onclick=clearRp;p.appendChild(x);$('txt').focus()}});
 if(m.u===me&&!m.poll&&Date.now()-m.ts<9e5)it('✏️ تعديل',function(){ask('تعديل الرسالة',[{k:'t',l:'النص',v:m.t}],function(o){var nt=String(o.t||'').trim();if(!nt||nt===m.t)return;if(nt.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');return}if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}soc('msg/edit',{scope:isPM?'p':'r',id:m.sid,text:nt},function(r){if(r.j&&r.j.ok){m.o=m.o||m.t;m.t=nt;m.ed=1}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر التعديل'));refresh()})})});
-if(m.u===me||(!isPM&&lv(me)>=2&&can(me,m.u,2)))it('🗑️ حذف',function(){if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}soc('msg/delete',{scope:isPM?'p':'r',id:m.sid},function(r){if(r.j&&r.j.ok){addLog(me.name+' حذف رسالة '+m.u.name);setSt(m,{del:1})}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الحذف'));refresh()})});
+if(m.u===me||(!isPM&&lv(me)>=2&&can(me,m.u,2)))it('🗑️ حذف',function(){if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}soc('msg/delete',{scope:isPM?'p':'r',id:m.sid},function(r){if(r.j&&r.j.ok){addLog(me.name+' حذف رسالة '+m.u.name);if(!isPM&&m.u!==me)applyUpd([{id:m.sid,del:2}],room);else setSt(m,{del:1})}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الحذف'));refresh()})});
 if(!isPM&&lv(me)>=3)it('📌 تثبيت',function(){if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}var rm=room;soc('pin/set',{id:m.sid},function(r){if(r.j&&r.j.ok){pins[rm]=m.t.slice(0,300);addLog(me.name+' ثبّت رسالة في '+rm);if(rm===room)drawPin()}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر التثبيت'))})});
 mn.style.display='block';mn.style.top=Math.min(e.clientY,innerHeight-300)+'px';mn.style.left=Math.min(e.clientX,innerWidth-190)+'px'}
 function draw(){var b=$('msgs');b.textContent='';var pv=null,k=0;(hist[room]||[]).forEach(function(m){if(!shown(m))return;b.appendChild(mkMsg(m,0,k++,!!(pv&&!pv.s&&!m.s&&pv.u===m.u)));pv=m});b.scrollTop=b.scrollHeight;newc=0;dn();drawPin()}
@@ -358,6 +381,7 @@ if(can(me,t,2)&&!isMuted(t))item('كتم',function(){scmd('كتم',t,'mute',func
 if(can(me,t,2)&&isMuted(t))item('فك الكتم',function(){soc('mod/unmute',{target:t.id},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر فك الكتم'));return}t.muted=false;t.mu=0;var tx='✅ تم فك كتم '+t.name+' بواسطة '+me.name;addLog(tx);post(t.room||room,0,tx,1);drawUsers()})});
 if(can(me,t,2))item('تحذير',function(){cmd('تحذير',t,function(d){t.warn=(t.warn||0)+1})});
 if(can(me,t,3))item('طرد من الغرفة',function(){scmd('طرد',t,'kick',function(d){t.kb=d?Date.now()+d*6e4:0;t.room=ROOMS[(ROOMS.indexOf(t.room||room)+1)%6]})});
+if(can(me,t,3))item('منع من دخول غرفة',function(){roomBanAsk(t)});
 if(can(me,t,5))item('حظر',function(){scmd('حظر',t,'ban',function(d){t.bu=d?Date.now()+d*6e4:Infinity})});
 if(can(me,t,5)&&t.role==='member')item(t.mroom?'إزالة إشراف الغرفة '+t.mroom:'تعيين مشرف غرفة',function(){if(t.mroom){var ox='ℹ️ أُزيل إشراف الغرفة '+t.mroom+' عن '+t.name+' بواسطة '+me.name;t.mroom=null;addLog(ox);post(room,0,ox,1);drawUsers();return}t.mroom=room;var tx='✅ تم تعيين '+t.name+' مشرف غرفة '+room+' بواسطة '+me.name;addLog(tx);post(room,0,tx,1);drawUsers()});
 if(canRank(me,t))item('تغيير الرتبة',function(){profile(t)});
@@ -1059,6 +1083,7 @@ if(!r.j||!r.j.msgs)return;
 if(r.j.mute!==undefined){var mm=r.j.mute;me.muted=!!mm;me.mu=mm&&mm.until?mm.until:0}
 if(hb)NET.hb=Date.now();
 applyOnline(r.j.online||[]);applySoc(r.j.soc);applySx(r.j.sx);applyAnn(r.j.ann,r.j.now);if(r.j.warns!==undefined)me.warn=r.j.warns;applyEmg(r.j.emg||null);var rl6={slow:'بطيء',ro:'للقراءة فقط'}[r.j.rmode];if(rl6)rmode[rm]=rl6;else delete rmode[rm];
+applyRoom(r.j,rm);
 if(NET.first){NET.first=0;hist[rm]=[];draw();addRows(r.j.msgs,1);if(NET.sys){post(rm,0,NET.sys,1);NET.sys=null}}
 else addRows(r.j.msgs,0);
 applyUpd(r.j.upd,rm);
@@ -1162,7 +1187,7 @@ addLog(tx);post(rm,0,tx,1);toast(tx);drawUsers();if(typeof profile==='function'&
 
 /* ===== المرحلة 6هـ: البلاغات وسجل الإجراءات والعقوبات الفعّالة (D1) ===== */
 var SLG={tab:'rep',st:'open',q:''};
-var ACT_AR={logwipe:'🧹 مسح السجل',reportwipe:'🧹 حذف بلاغات',ww_hit:'🚫 كلمة ممنوعة (تلقائي)',ww_save:'🚫 تعديل كلمة ممنوعة',ww_del:'🚫 حذف كلمة ممنوعة',ww_lock:'🔒 قفل الكلمات الممنوعة',emergency:'🚨 وضع الطوارئ',mute:'🔇 كتم',unmute:'🔊 فك كتم',kick:'🚪 طرد',unkick:'↩️ فك طرد',ban:'⛔ حظر',unban:'↩️ فك حظر',warn:'⚠️ تحذير',rank:'🏅 رتبة',revoke:'⛔ سحب صلاحيات',restore:'✅ إعادة صلاحيات',delmsg:'🗑️ حذف رسائل',wipe:'🧹 مسح رسائل',rename:'🏷️ تغيير اسم',move:'🔀 نقل',roommod:'🏠 مشرف غرفة',unroommod:'🏠 إزالة مشرف غرفة',roommode:'🔒 وضع غرفة',reportdone:'✅ معالجة بلاغ',reportopen:'🚩 إعادة فتح بلاغ',note:'📝 ملاحظة'};
+var ACT_AR={logwipe:'🧹 مسح السجل',reportwipe:'🧹 حذف بلاغات',ww_hit:'🚫 كلمة ممنوعة (تلقائي)',ww_save:'🚫 تعديل كلمة ممنوعة',ww_del:'🚫 حذف كلمة ممنوعة',ww_lock:'🔒 قفل الكلمات الممنوعة',emergency:'🚨 وضع الطوارئ',mute:'🔇 كتم',unmute:'🔊 فك كتم',kick:'🚪 طرد',unkick:'↩️ فك طرد',ban:'⛔ حظر',unban:'↩️ فك حظر',roomclear:'🧹 تنظيف غرفة',roomtopic:'📣 موضوع غرفة',roomflag:'🔧 خيار غرفة',warn:'⚠️ تحذير',rank:'🏅 رتبة',revoke:'⛔ سحب صلاحيات',restore:'✅ إعادة صلاحيات',delmsg:'🗑️ حذف رسائل',wipe:'🧹 مسح رسائل',rename:'🏷️ تغيير اسم',move:'🔀 نقل',roommod:'🏠 مشرف غرفة',unroommod:'🏠 إزالة مشرف غرفة',roommode:'🔒 وضع غرفة',reportdone:'✅ معالجة بلاغ',reportopen:'🚩 إعادة فتح بلاغ',note:'📝 ملاحظة'};
 var SK_AR={mute:'🔇 مكتوم',kick:'🚪 مطرود',ban:'⛔ محظور',revoke:'🔻 صلاحيات مسحوبة',warn:'⚠️ تحذير',move:'🔀 نقل'};
 function ownTools(b){if(!me||me.role!=='owner'||(SLG.tab!=='log'&&SLG.tab!=='rep'))return;var lg=SLG.tab==='log',pd=lg?'owner/log/del':'owner/report/del',ph=pd.replace('/del','/hide');
 function btn(t,path,body,msg,ok){var x=el('button','g',t);x.onclick=function(){if(msg&&!confirm(msg))return;soc(path,body,function(z){if(z.j&&z.j.ok){toast(ok+' '+z.j.n);showLog()}else toast('⚠️ '+((z.j&&z.j.error)||'تعذر التنفيذ'))})};return x}
