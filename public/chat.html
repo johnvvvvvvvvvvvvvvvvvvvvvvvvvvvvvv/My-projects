@@ -222,9 +222,9 @@ function mention(u){var t=$('txt');t.value+=(t.value&&!/\s$/.test(t.value)?' ':'
 function showMP(){var p=$('mp');p.textContent='';var l=users.filter(function(u){return u.room===room&&u.id!==me.id&&!bn(u)});if(!l.length)p.appendChild(el('small','mu','لا أعضاء آخرون'));l.forEach(function(u){var b=el('button','g',u.name);b.style.cssText='display:block;width:100%;text-align:start;margin:2px 0';b.onclick=function(){mention(u);p.style.display='none'};p.appendChild(b)});p.style.display='block'}
 function openWheel(){var w=$('wh');w.textContent='';var l=el('div');l.id='wl';ROOMS.forEach(function(r){var d=el('div','wi'+(r===room?' on':''),r+' ('+users.filter(function(u){return u.room===r}).length+')');d.onclick=function(){w.classList.remove('open');if(r!==room){$('room').value=r;$('room').onchange()}};l.appendChild(d)});w.appendChild(l);w.classList.add('open');l.scrollTop=l.querySelector('.on').offsetTop-66}
 function visView(){var s=head('من زار بروفايلي',1);var w=el('small','mu','جارٍ التحميل...');s.appendChild(w);loadVis(function(l){w.textContent='';if(!l.length){w.textContent='لا زوار بعد.';return}l.slice(0,30).forEach(function(v){var c=el('div','nw');c.appendChild(el('b','',v.n));c.appendChild(el('small','mu',ago(v.ts)));s.appendChild(c)})})}
-var PF={th:'auto',alt:1,bg:'none',fs:15},newc=0;try{Object.assign(PF,JSON.parse(localStorage.getItem('chatpf')||'{}'))}catch(e){}
+var PF={th:'auto',alt:1,bg:'none',fs:15},PF_DEF={th:'auto',alt:1,bg:'none',fs:15},newc=0;try{Object.assign(PF,JSON.parse(localStorage.getItem('chatpf')||'{}'))}catch(e){}
 function applyPf(){var d=document.documentElement;if(PF.th==='auto')d.removeAttribute('data-theme');else d.setAttribute('data-theme',PF.th);document.body.style.fontSize=PF.fs+'px';$('msgs').dataset.bg=PF.bg}
-function setPref(k,v){PF[k]=v;try{localStorage.setItem('chatpf',JSON.stringify(PF))}catch(e){}applyPf();if(me)draw()}
+function setPref(k,v){PF[k]=v;try{localStorage.setItem('chatpf',JSON.stringify(PF))}catch(e){}applyPf();if(me)draw();syncSoon()}
 function dn(){var b=$('msgs'),near=b.scrollHeight-b.scrollTop-b.clientHeight<80;if(near)newc=0;$('dn').style.display=near?'none':'block';$('dn').textContent='⬇'+(newc?' '+newc:'')}
 function grow(){var t=$('txt');t.style.height='auto';t.style.height=Math.min(t.scrollHeight,96)+'px'}
 function addLog(t){logs.unshift(new Date().toLocaleTimeString('ar')+' — '+t);}
@@ -412,8 +412,19 @@ $('msgs').onscroll=dn;$('dn').onclick=function(){var b=$('msgs');b.scrollTop=b.s
 /* ===== v6: مركز الأوامر + الإعدادات (محلي) ===== */
 var ACTLOG=[],PROPS=[],APPEALS=[],WN=3,AUTO={on:1,words:[],links:1,rep:1,caps:1},EMG=null,lastTxt=[],DR={},SR='غرفة المشرفين';
 var ST={pm:'all',vis:'all',conf:'all',ghost:0,nt:{},q:0,qa:23,qb:7,ent:1,mw:[],dens:'cozy',av:1,city:'',tags:'',rel:''};
-try{Object.assign(ST,JSON.parse(localStorage.getItem('chatst')||'{}'))}catch(e){}
-function saveST(){try{localStorage.setItem('chatst',JSON.stringify(ST))}catch(e){}document.body.classList.toggle('noav',!ST.av);document.body.classList.toggle('cmp',ST.dens==='cmp')}
+var ST_DEF=JSON.parse(JSON.stringify(ST)),SYNC={ready:0,t:0};try{Object.assign(ST,JSON.parse(localStorage.getItem('chatst')||'{}'))}catch(e){}
+function saveST(){try{localStorage.setItem('chatst',JSON.stringify(ST))}catch(e){}document.body.classList.toggle('noav',!ST.av);document.body.classList.toggle('cmp',ST.dens==='cmp');syncSoon()}
+/* ===== مزامنة الإعدادات مع الخادم: المظهر والتفضيلات والملاحظات والرسائل المحفوظة ===== */
+function syncSoon(){if(typeof SYNC==='undefined'||!SYNC.ready||!me)return;clearTimeout(SYNC.t);SYNC.t=setTimeout(function(){syncNow()},1500)}
+function syncNow(keep){if(typeof SYNC==='undefined'||!SYNC.ready||!me)return;clearTimeout(SYNC.t);fetch('/api/settings/set',{method:'POST',credentials:'same-origin',keepalive:!!keep,headers:{'content-type':'application/json'},body:JSON.stringify({st:ST,pf:PF})}).catch(function(){})}
+function loadSettings(){api('settings').then(function(r){if(!r.j||!r.j.ok)return;var hs=r.j.st&&typeof r.j.st==='object',hp=r.j.pf&&typeof r.j.pf==='object';
+if(hs){Object.keys(ST).forEach(function(k){delete ST[k]});Object.assign(ST,JSON.parse(JSON.stringify(ST_DEF)),r.j.st)}
+if(hp){Object.keys(PF).forEach(function(k){delete PF[k]});Object.assign(PF,PF_DEF,r.j.pf)}
+ST.sv=ST.sv||[];ST.mn=ST.mn||{};ST.rr=ST.rr||{};ST.dr=ST.dr||{};
+try{localStorage.setItem('chatst',JSON.stringify(ST));localStorage.setItem('chatpf',JSON.stringify(PF))}catch(e){}
+document.body.classList.toggle('noav',!ST.av);document.body.classList.toggle('cmp',ST.dens==='cmp');
+SYNC.ready=1;applyPf();draw();drawUsers();if(!hs||!hp)syncNow()},function(){})}
+addEventListener('pagehide',function(){syncNow(1)});
 ROOMS.push(SR);
 users.forEach(function(u){u.repn=u.repn||0});
 var st$=document.createElement('style');st$.textContent='#menu{max-height:70vh;overflow-y:auto}#side{overflow-y:auto;-webkit-overflow-scrolling:touch}#dl>.c{max-height:88vh;overflow-y:auto}body.noav #msgs .av{display:none}body.cmp #msgs .m{padding-top:2px;padding-bottom:2px}.tbs{display:flex;flex-wrap:wrap;gap:6px;padding:4px 0;flex:0 0 auto}.tbs button{white-space:nowrap;flex:0 0 auto;width:auto;min-width:0;line-height:1.3;padding-inline:12px}.pbar{height:8px;border-radius:4px;background:var(--bd);overflow:hidden}.pbar i{display:block;height:100%;background:var(--ac)}';document.head.appendChild(st$);
@@ -558,50 +569,39 @@ var st2=document.createElement('style');st2.textContent='#wh{left:0!important;ri
 openWheel=function(){var w=$('wh');w.textContent='';var l=el('div');l.id='wl';ROOMS.filter(function(r){return r!==SR||tier(me)>=1}).forEach(function(r){var d=el('div','wi'+(r===room?' on':''),r+' ('+users.filter(function(u){return u.room===r}).length+')');d.onclick=function(){w.classList.remove('open');if(r!==room){$('room').value=r;$('room').onchange()}};l.appendChild(d)});w.appendChild(l);w.classList.add('open');var o=l.querySelector('.on');if(o)l.scrollTop=o.offsetTop-l.clientHeight/2+22};
 document.addEventListener('click',function(e){var w=$('wh');if(w.classList.contains('open')&&!w.contains(e.target)&&!(e.target.closest&&e.target.closest('#rb')))w.classList.remove('open')});
 /* ---- المتجر ---- */
-var SH={coins:200,inv:[],eq:{},wish:[],day:'',last:'',streak:0,claimed:0,cnt:{msg:0,fr:0,rx:0},done:{},hid:[],extra:[],tx:[],sales:{},gd:'',ga:0};
-try{Object.assign(SH,JSON.parse(localStorage.getItem('chatshop')||'{}'))}catch(e){}
-function saveSH(){try{localStorage.setItem('chatshop',JSON.stringify(SH))}catch(e){}}
+var SH={ok:0,err:'',coins:0,inv:[],eq:{},wish:[],streak:0,claimed:0,cnt:{msg:0,fr:0,rx:0},done:{},hid:[],items:[],tasks:[],tx:[],sales:{},gleft:0};
+/* الحالة كلها على الخادم: SH نسخة للعرض فقط، وكل عملية (شراء/تفعيل/مكافأة/إهداء) تمر عبر /api/shop/* ويتحقق منها الخادم */
+function shopSet(s){if(!s||typeof s!=='object')return;var o={ok:1,err:''};Object.keys(s).forEach(function(k){o[k]=s[k]});o.cnt=o.cnt||SH.cnt;o.sales=o.sales||SH.sales;SH=o}
+function shopLoad(q,cb){api('shop/state'+(q?'?'+q:'')).then(function(r){var ok=!!(r.j&&r.j.ok);if(ok)shopSet(r.j.shop);else SH.err=(r.j&&r.j.error)||'تعذر تحميل المتجر';if(cb)cb(ok)},function(){SH.err='تعذر الاتصال بالخادم';if(cb)cb(false)})}
+function shopAct(p,b,done){api(p,b).then(function(r){if(r.j&&r.j.ok){shopSet(r.j.shop);if(done)done(r.j)}else toast((r.j&&r.j.error)||'تعذر تنفيذ العملية')},function(){toast('تعذر الاتصال بالخادم')})}
 var RAR={common:['عادي','#94a3b8'],rare:['نادر','#3b82f6'],epic:['أسطوري','#f59e0b'],ltd:['محدود','#10b981']},TL={name:'🎭 ألوان الاسم',frame:'🖼️ إطارات',theme:'🎨 ثيمات',bg:'🌌 خلفيات',bubble:'💬 فقاعات',title:'🏷️ ألقاب'};
-var ITEMS=[{id:'nc1',t:'name',n:'اسم ذهبي',v:'#d4af37',p:60,r:'rare'},{id:'nc2',t:'name',n:'اسم نيون',v:'#22d3ee',p:50,r:'rare'},{id:'nc3',t:'name',n:'اسم وردي',v:'#f472b6',p:30,r:'common'},{id:'nc4',t:'name',n:'اسم ليموني',v:'#84cc16',p:30,r:'common'},
-{id:'fr1',t:'frame',n:'إطار ذهبي',v:'#d4af37',p:80,r:'rare'},{id:'fr2',t:'frame',n:'إطار نيون',v:'#22d3ee',p:80,r:'rare'},{id:'fr3',t:'frame',n:'إطار أخضر',v:'#22c55e',p:40,r:'common'},
-{id:'th1',t:'theme',n:'ثيم ملكي',v:'royal',p:150,r:'epic'},{id:'th2',t:'theme',n:'ثيم نيون',v:'neon',p:150,r:'epic'},{id:'th3',t:'theme',n:'ثيم فضاء',v:'space',p:120,r:'epic'},
-{id:'bg1',t:'bg',n:'خلفية نجوم',v:'stars',p:70,r:'rare'},{id:'bg2',t:'bg',n:'خلفية زخرفة',v:'arab',p:70,r:'rare'},
-{id:'bb1',t:'bubble',n:'فقاعة بحرية',v:'#0e6a8f',p:40,r:'common'},{id:'bb2',t:'bubble',n:'فقاعة زيتونية',v:'#4d6b1f',p:40,r:'common'},
-{id:'tt1',t:'title',n:'لقب النجم',v:'⭐ النجم',p:50,r:'common'},{id:'tt2',t:'title',n:'لقب الفارس',v:'🛡️ الفارس',p:50,r:'common'},{id:'tt3',t:'title',n:'لقب الملك',v:'👑 الملك',p:200,r:'ltd'}];
-var TASKS=[{id:'t1',n:'أرسل 5 رسائل',k:'msg',g:5,c:20},{id:'t2',n:'أضف صديقاً',k:'fr',g:1,c:30},{id:'t3',n:'تفاعل مع 3 رسائل',k:'rx',g:3,c:15}];
-function allI(){return ITEMS.concat(SH.extra)}
-function item(id){return allI().filter(function(x){return x.id===id})[0]}
-function today(){return fdate(Date.now())}
-function rollDay(){if(SH.day!==today()){SH.day=today();SH.cnt={msg:0,fr:0,rx:0};SH.done={};SH.claimed=0;saveSH()}}
-function tx(t){SH.tx.unshift(fdt(Date.now())+' — '+t);SH.tx=SH.tx.slice(0,30);saveSH()}
-function bump(k){rollDay();SH.cnt[k]=(SH.cnt[k]||0)+1;saveSH();TASKS.forEach(function(t){if(t.k===k&&SH.cnt[k]===t.g)toast('✅ أنجزت مهمة: '+t.n+' — اجمع مكافأتك من المتجر')})}
-var _po=post;post=function(r,u,t,s,ex){var m=_po(r,u,t,s,ex);if(me&&u===me&&!s&&!(ex&&ex.sid))bump('msg');return m};
-var _re=react;react=function(m,k){_re(m,k);bump('rx')};
-var _n2=notify;notify=function(ty,t,uid){if(ty==='friend'&&t.indexOf('قَبِل')>-1)bump('fr');_n2(ty,t,uid)};
+function allI(){return SH.items}
+function item(id){return SH.items.filter(function(x){return x.id===id})[0]}
 var _ap=applyPf;function applyEq(eq){eq=eq||SH.eq;_ap();if(!me)return;if(eq.theme)document.documentElement.setAttribute('data-theme',eq.theme);if(eq.bg)$('msgs').dataset.bg=eq.bg;me.baseC=me.baseC||me.c;me.c=eq.name||me.baseC;var s=$('bbst');if(!s){s=document.createElement('style');s.id='bbst';document.head.appendChild(s)}s.textContent=eq.bubble?'#msgs .m.me{background:'+eq.bubble+'!important;color:#fff}':'';if(!eq._t){draw();drawUsers()}}
 applyPf=function(){_ap();if(me)applyEq()};
 var _av2=av;av=function(u){var d=_av2(u);if(u===me&&SH.eq.frame)d.style.boxShadow='0 0 0 3px '+SH.eq.frame;return d};
-var _ti=setInterval(function(){if(me){clearInterval(_ti);rollDay();applyEq()}},500);
+var _ti=setInterval(function(){if(me){clearInterval(_ti);loadSettings();shopLoad('',function(){applyEq()})}},500);
 function owned(i){return SH.inv.indexOf(i.id)>-1}
-function buy(i){if(owned(i))return;if(SH.coins<i.p){toast('🪙 رصيدك لا يكفي');return}SH.coins-=i.p;SH.inv.push(i.id);SH.sales[i.id]=(SH.sales[i.id]||0)+1;tx('شراء '+i.n+' (-'+i.p+')');saveSH();toast('✅ تم شراء '+i.n);shopView('shop')}
-function equip(i,on){if(on)SH.eq[i.t]=i.v;else delete SH.eq[i.t];if(i.t==='title'){}saveSH();applyEq();shopView('bag')}
+function buy(i){if(owned(i))return;if(SH.coins<i.p){toast('🪙 رصيدك لا يكفي');return}shopAct('shop/buy',{id:i.id},function(){toast('✅ تم شراء '+i.n);shopRender('shop')})}
+function equip(i,on){shopAct('shop/equip',{id:i.id,on:on?1:0},function(){applyEq();shopRender('bag')})}
 function trial(i){var e=Object.assign({},SH.eq);e[i.t]=i.v;e._t=1;applyEq(e);toast('👁️ تجربة 10 ثوانٍ');setTimeout(function(){applyEq()},10000)}
-function shopView(sc){sc=sc||'shop';rollDay();var s=head('🛒 المتجر',1);s.appendChild(el('b','','🪙 رصيدك: '+SH.coins));var tb=el('div','tbs');[['shop','🛒 المتجر'],['bag','🎒 حقيبتي'],['tasks','📅 المهام'],['wish','⭐ أمنياتي']].concat(tier(me)>=4?[['adm','🧰 إدارة']]:[]).forEach(function(t){var b=el('button',t[0]===sc?'':'g',t[1]);b.onclick=function(){shopView(t[0])};tb.appendChild(b)});s.appendChild(tb);
+function shopRender(sc){sc=sc||'shop';var s=head('🛒 المتجر',1);s.appendChild(el('b','','🪙 رصيدك: '+SH.coins));var tb=el('div','tbs');[['shop','🛒 المتجر'],['bag','🎒 حقيبتي'],['tasks','📅 المهام'],['wish','⭐ أمنياتي']].concat(tier(me)>=4?[['adm','🧰 إدارة']]:[]).forEach(function(t){var b=el('button',t[0]===sc?'':'g',t[1]);b.onclick=function(){shopView(t[0])};tb.appendChild(b)});s.appendChild(tb);
 function card(i,mode){var c=el('div','nw'),r=RAR[i.r]||RAR.common;var h=el('b','',i.n+' · '+r[0]);h.style.color=r[1];c.appendChild(h);c.appendChild(el('small','mu',TL[i.t]+(mode==='shop'?' · 🪙 '+i.p:'')));
 if(i.t==='name'||i.t==='frame'||i.t==='bubble'){var sw=el('div','');sw.style.cssText='height:10px;border-radius:5px;margin:4px 0;background:'+i.v;c.appendChild(sw)}else if(i.t==='title')c.appendChild(el('div','',i.v));
 var row=el('div','pk');function bt(l,f,g){var b=el('button',g?'g':'',l);b.onclick=f;row.appendChild(b)}
 if(mode==='bag'){var on=SH.eq[i.t]===i.v;bt(on?'إلغاء التفعيل':'تفعيل',function(){equip(i,!on)})}
-else{if(owned(i))row.appendChild(el('small','mu','✅ مملوك'));else bt('شراء',function(){buy(i)});if(i.t!=='title')bt('👁️ جرّب 10 ث',function(){trial(i)},1);var w=SH.wish.indexOf(i.id)>-1;bt(w?'★':'☆',function(){if(w)SH.wish.splice(SH.wish.indexOf(i.id),1);else SH.wish.push(i.id);saveSH();shopView(sc)},1)}
+else{if(owned(i))row.appendChild(el('small','mu','✅ مملوك'));else bt('شراء',function(){buy(i)});if(i.t!=='title')bt('👁️ جرّب 10 ث',function(){trial(i)},1);var w=SH.wish.indexOf(i.id)>-1;bt(w?'★':'☆',function(){shopAct('shop/wish',{id:i.id},function(){shopRender(sc)})},1)}
 c.appendChild(row);s.appendChild(c)}
 if(sc==='shop'){Object.keys(TL).forEach(function(t){var l=allI().filter(function(i){return i.t===t&&SH.hid.indexOf(i.id)<0});if(!l.length)return;s.appendChild(el('b','',TL[t]));l.forEach(function(i){card(i,'shop')})});s.appendChild(el('small','mu','لا تُباع صلاحيات إدارية ولا حماية من العقوبات ولا ألوان الرتب الإدارية.'))}
 if(sc==='bag'){var l=SH.inv.map(item).filter(Boolean);if(!l.length)s.appendChild(el('small','mu','حقيبتك فارغة.'));l.forEach(function(i){card(i,'bag')})}
 if(sc==='wish'){var l=SH.wish.map(item).filter(Boolean);if(!l.length)s.appendChild(el('small','mu','لا أغراض في قائمة الأمنيات.'));l.forEach(function(i){card(i,'shop')})}
-if(sc==='tasks'){var c=el('div','nw');var ok=SH.last!==today();c.appendChild(el('b','','🎁 مكافأة الدخول اليومي · سلسلة '+SH.streak+' يوم'));var b=el('button',ok?'':'g',ok?'استلم +20 🪙':'تم الاستلام اليوم');b.onclick=function(){if(!ok)return;var y=fdate(Date.now()-864e5);SH.streak=SH.last===y?SH.streak+1:1;SH.last=today();var g=20+Math.min(SH.streak,7)*2;SH.coins+=g;tx('مكافأة يومية +'+g);saveSH();shopView('tasks')};c.appendChild(b);s.appendChild(c);
-TASKS.forEach(function(t){var d=el('div','nw'),n=SH.cnt[t.k]||0;d.appendChild(el('b','',t.n+' ('+Math.min(n,t.g)+'/'+t.g+') · +'+t.c+' 🪙'));var done=SH.done[t.id],can2=n>=t.g&&!done;var b=el('button',can2?'':'g',done?'✅ تم':can2?'اجمع المكافأة':'غير مكتملة');b.onclick=function(){if(!can2)return;SH.done[t.id]=1;SH.coins+=t.c;tx('مهمة: '+t.n+' +'+t.c);saveSH();shopView('tasks')};d.appendChild(b);s.appendChild(d)});
-var h=el('div','nw');h.appendChild(el('b','','🧾 سجل المعاملات'));SH.tx.slice(0,10).forEach(function(x){h.appendChild(el('small','mu',x))});if(!SH.tx.length)h.appendChild(el('small','mu','لا معاملات.'));s.appendChild(h)}
-if(sc==='adm'){var ab=el('button','','➕ إضافة غرض');ab.onclick=function(){ask('➕ غرض جديد',[{k:'n',l:'الاسم'},{k:'p',l:'السعر 🪙',t:'number',min:1},{k:'t',l:'النوع',ch:[['اسم','name'],['إطار','frame'],['ثيم','theme'],['خلفية','bg'],['فقاعة','bubble'],['لقب','title']]},{k:'r',l:'الندرة',ch:[['عادي','common'],['نادر','rare'],['أسطوري','epic'],['محدود','ltd']]},{k:'v',l:'القيمة: لون #rrggbb أو نص اللقب أو مفتاح الثيم/الخلفية'}],function(o){if(!TL[o.t]||!RAR[o.r]){toast('اختر نوعاً وندرة');return}var ok=(o.t==='name'||o.t==='frame'||o.t==='bubble')?/^#[0-9a-f]{6}$/i.test(o.v):true;if(!ok){toast('اللون غير صحيح');return}if(Object.keys(RC).some(function(k){return RC[k].toLowerCase()===o.v.toLowerCase()})){toast('⛔ لا تُباع ألوان الرتب الإدارية');return}if(RSV.test(o.n+o.v)){toast('⛔ الاسم يشبه رتبة إدارية');return}SH.extra.push({id:'x'+Date.now(),t:o.t,n:o.n,v:o.v,p:o.p,r:o.r});saveSH();shopView('adm')})};s.appendChild(ab);
-allI().forEach(function(i){var c=el('div','nw');c.appendChild(el('b','',i.n+' · 🪙'+i.p+' · مبيعات: '+(SH.sales[i.id]||0)));var h=SH.hid.indexOf(i.id)>-1,b=el('button','g',h?'👁️ إظهار':'🙈 إخفاء فوري');b.onclick=function(){if(h)SH.hid.splice(SH.hid.indexOf(i.id),1);else SH.hid.push(i.id);saveSH();shopView('adm')};c.appendChild(b);s.appendChild(c)})}}
-function giftCoins(u){rollDay();if(SH.gd!==today()){SH.gd=today();SH.ga=0}var left=50-SH.ga;if(left<=0){toast('وصلت للحد اليومي (50 🪙)');return}ask('🪙 إهداء عملات إلى '+u.name,[{k:'a',l:'الكمية (الحد المتبقي اليوم '+left+')',t:'number',min:1,max:Math.min(left,SH.coins)||1}],function(o){if(o.a>SH.coins){toast('رصيدك لا يكفي');return}SH.coins-=o.a;SH.ga+=o.a;tx('هدية '+o.a+' إلى '+u.name);saveSH();toast('🪙 تم إهداء '+o.a+' لـ '+u.name)})}
+if(sc==='tasks'){var c=el('div','nw');var ok=!SH.claimed;c.appendChild(el('b','','🎁 مكافأة الدخول اليومي · سلسلة '+SH.streak+' يوم'));var b=el('button',ok?'':'g',ok?'استلم +20 🪙':'تم الاستلام اليوم');b.onclick=function(){if(!ok)return;shopAct('shop/claim',{k:'daily'},function(){shopRender('tasks')})};c.appendChild(b);s.appendChild(c);
+SH.tasks.forEach(function(t){var d=el('div','nw'),n=SH.cnt[t.k]||0;d.appendChild(el('b','',t.n+' ('+Math.min(n,t.g)+'/'+t.g+') · +'+t.c+' 🪙'));var done=SH.done[t.id],can2=n>=t.g&&!done;var b=el('button',can2?'':'g',done?'✅ تم':can2?'اجمع المكافأة':'غير مكتملة');b.onclick=function(){if(!can2)return;shopAct('shop/claim',{k:t.id},function(){shopRender('tasks')})};d.appendChild(b);s.appendChild(d)});
+var h=el('div','nw');h.appendChild(el('b','','🧾 سجل المعاملات'));SH.tx.slice(0,10).forEach(function(x){h.appendChild(el('small','mu',fdt(x.ts)+' — '+x.t))});if(!SH.tx.length)h.appendChild(el('small','mu','لا معاملات.'));s.appendChild(h)}
+if(sc==='adm'){var ab=el('button','','➕ إضافة غرض');ab.onclick=function(){ask('➕ غرض جديد',[{k:'n',l:'الاسم'},{k:'p',l:'السعر 🪙',t:'number',min:1},{k:'t',l:'النوع',ch:[['اسم','name'],['إطار','frame'],['ثيم','theme'],['خلفية','bg'],['فقاعة','bubble'],['لقب','title']]},{k:'r',l:'الندرة',ch:[['عادي','common'],['نادر','rare'],['أسطوري','epic'],['محدود','ltd']]},{k:'v',l:'القيمة: لون #rrggbb أو نص اللقب أو مفتاح الثيم/الخلفية'}],function(o){if(!TL[o.t]||!RAR[o.r]){toast('اختر نوعاً وندرة');return}var ok=(o.t==='name'||o.t==='frame'||o.t==='bubble')?/^#[0-9a-f]{6}$/i.test(o.v):true;if(!ok){toast('اللون غير صحيح');return}if(Object.keys(RC).some(function(k){return RC[k].toLowerCase()===o.v.toLowerCase()})){toast('⛔ لا تُباع ألوان الرتب الإدارية');return}if(RSV.test(o.n+o.v)){toast('⛔ الاسم يشبه رتبة إدارية');return}shopAct('shop/admin',{op:'add',t:o.t,n:o.n,v:o.v,p:o.p,r:o.r},function(){shopRender('adm')})})};s.appendChild(ab);
+allI().forEach(function(i){var c=el('div','nw');c.appendChild(el('b','',i.n+' · 🪙'+i.p+' · مبيعات: '+(SH.sales[i.id]||0)));var h=SH.hid.indexOf(i.id)>-1,b=el('button','g',h?'👁️ إظهار':'🙈 إخفاء فوري');b.onclick=function(){shopAct('shop/admin',{op:h?'show':'hide',id:i.id},function(){shopRender('adm')})};c.appendChild(b);s.appendChild(c)})}}
+function shopView(sc){sc=sc||'shop';var q=sc==='tasks'?'counts=1':sc==='adm'?'adm=1':'';shopLoad(q,function(ok){if(!ok){var s=head('🛒 المتجر',1);s.appendChild(el('small','mu',SH.err||'تعذر تحميل المتجر'));return}shopRender(sc)})}
+function giftCoins(u){shopLoad('',function(ok){if(!ok){toast(SH.err||'تعذر تحميل المتجر');return}var left=SH.gleft;if(left<=0){toast('وصلت للحد اليومي (50 🪙)');return}ask('🪙 إهداء عملات إلى '+u.name,[{k:'a',l:'الكمية (الحد المتبقي اليوم '+left+')',t:'number',min:1,max:Math.min(left,SH.coins)||1}],function(o){shopAct('shop/gift',{target:u.id,a:o.a},function(){toast('🪙 تم إهداء '+o.a+' لـ '+u.name)})})})}
 var _mv2=menuView;menuView=function(){_mv2();mi($('side'),'🛒','المتجر ('+SH.coins+' 🪙)',function(){shopView('shop')})};
 /* ---- الخاص: طلبات، مؤقتة، غير مقروء، تحذير ---- */
 var REQ={},SEEN={},SEEN0={},TMP={},simN=0;
@@ -777,7 +777,7 @@ function f(){o.textContent='';var n=i.value.trim().toLowerCase();if(!n)return;va
 var L=logs.filter(function(t){return t.indexOf(u.name)>-1});o.appendChild(el('b','','سجل الإجراءات المتعلقة بـ '+u.name+' ('+L.length+')'));L.slice(0,15).forEach(function(t){o.appendChild(el('small','mu',t))});
 var ta=el('textarea');ta.rows=3;ta.placeholder='ملاحظة داخلية لا يراها العضو';ta.value=ST.mn[u.name]||'';var sb=el('button','','حفظ الملاحظة');sb.onclick=function(){ST.mn[u.name]=ta.value;saveST();toast('تم الحفظ')};o.appendChild(ta);o.appendChild(sb)}
 i.onchange=f})}
-function backup(){var d={ts:Date.now(),logs:logs};['chatshop','chatst','chatpf'].forEach(function(k){try{d[k]=JSON.parse(localStorage.getItem(k))}catch(e){}});
+function backup(){var d={ts:Date.now(),logs:logs};['chatst','chatpf'].forEach(function(k){try{d[k]=JSON.parse(localStorage.getItem(k))}catch(e){}});
 var a=document.createElement('a');a.href=URL.createObjectURL(new Blob([JSON.stringify(d)],{type:'application/json'}));a.download='chat-backup-'+new Date().toISOString().slice(0,10)+'.json';a.click()}
 function tour(){var T=['اضغط على اسم أي عضو لفتح قائمته أو ملفه.','اضغط على أي رسالة للرد أو التفاعل أو الحفظ أو التعديل.','اسحب الرسالة جانباً للرد عليها (على الجوال).','ثبّت محادثات الخاص 📌 أو أرشفها 📦 من قائمة ✉️.','Ctrl+K للبحث السريع عن عضو.'];box('👋 جولة سريعة',function(c){T.forEach(function(t,i){c.appendChild(el('div','r15',(i+1)+'. '+t))});ST.tour=1;saveST()})}
 function hub(){box('🧰 الأدوات',function(c){
