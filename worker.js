@@ -13,7 +13,7 @@
 import {
   NAME_OK, RESERVED, DAY, ROOMS, KEEP, ONLINE_MS, MAX_TEXT, HISTORY, TMP_OK,
   PM_HISTORY, MAX_FRIENDS, MAX_IGNORES, EDIT_MS, EMOJI, LVN, lvOf, lvBase,
-  pwOf, capOf, canMod, DEBUG,
+  pwOf, capOf, canMod, DEBUG, WS_ROOMS, WS_PAYLOAD, PRES_WRITE_MS,
 } from './src/config.js';
 import { json, serverError, readBody } from './src/http.js';
 import { ensureDatabase, cleanup } from './src/database.js';
@@ -22,6 +22,9 @@ import {
   tooManyAttempts, noteAttempt,
 } from './src/security.js';
 import { shopState, settingsGet, SHOP_POST } from './src/store.js';
+
+// المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
+export { Room } from './src/room.js';
 
 
 async function register(req, env, ip) {
@@ -1024,6 +1027,11 @@ const msgRow = (r, vlv) => {
   return o;
 };
 
+// المرحلة 5: لا نكتب سجل الحضور إلا عند تغيّر الغرفة أو مرور PRES_WRITE_MS على آخر كتابة.
+// عند عدم تحقق الشرط لا يُعدَّل أي صف، فتقلّ كتابات D1 (أكبر مستهلك للحد المجاني).
+const PRESENCE_UPSERT = 'INSERT INTO presence(user_id,room,ts) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET room=excluded.room, ts=excluded.ts '
+  + 'WHERE presence.room<>excluded.room OR presence.ts<excluded.ts-?';
+
 async function poll(req, env, url) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
@@ -1050,9 +1058,7 @@ async function poll(req, env, url) {
   const warns = sc.filter((x) => x.kind === 'warn').length;
 
   if (url.searchParams.get('hb') === '1') {
-    await env.DB.prepare(
-      'INSERT INTO presence(user_id,room,ts) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET room=excluded.room, ts=excluded.ts'
-    ).bind(u.id, room, now).run();
+    await env.DB.prepare(PRESENCE_UPSERT).bind(u.id, room, now, PRES_WRITE_MS).run();
   }
 
   // حالة الغرفة: وقت التنظيف (ما قبله مخفي دون حذف) + الموضوع + خيارات الغرفة
@@ -1466,9 +1472,7 @@ async function postMsg(req, env) {
   }
   const ins = await env.DB.prepare('INSERT INTO messages(room,user_id,uname,text,rn,rt,rid,ts,kind,pl,upd) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
     .bind(room, u.id, u.name, text, rn, rt, rid, now, kind, pl, 0).run();
-  await env.DB.prepare(
-    'INSERT INTO presence(user_id,room,ts) VALUES(?,?,?) ON CONFLICT(user_id) DO UPDATE SET room=excluded.room, ts=excluded.ts'
-  ).bind(u.id, room, now).run();
+  await env.DB.prepare(PRESENCE_UPSERT).bind(u.id, room, now, PRES_WRITE_MS).run();
   if (!kind) await env.DB.prepare('INSERT INTO user_stats(user_id,msgs) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET msgs=msgs+1').bind(u.id).run();
   await cleanup(env);
   return json({ ok: true, id: ins.meta.last_row_id, ts: now, kind });
@@ -2507,7 +2511,7 @@ async function logout(req, env) {
   return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
 }
 
-export default {
+const baseHandler = {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (!url.pathname.startsWith('/api/')) return env.ASSETS.fetch(req);
@@ -2568,5 +2572,86 @@ export default {
     } catch (e) {
       return serverError(e, url.pathname);
     }
+  },
+};
+
+// ---------- المرحلة 2: WebSocket تجريبي (إشارة «تحديث الآن» فقط، بلا أي بيانات) ----------
+// الرسائل نفسها تبقى تصل عبر /api/poll لتبقى كل الفلاتر (التجاهل، الكتم الخفي، الحظر) في الخادم.
+const POKE_PATH = /^\/api\/(post|msg\/|pin\/|room\/|mod\/|pm\/send|announce)/;
+
+async function wsConnect(req, env, url) {
+  if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'مطلوب اتصال WebSocket' }, 426);
+  let okOrigin = false;
+  try { okOrigin = new URL(req.headers.get('origin') || '').host === url.host; } catch { okOrigin = false; }
+  if (!okOrigin) return json({ error: 'مرفوض' }, 403);
+  if (!env.ROOM) return json({ error: 'غير متاح' }, 503);
+  const room = url.searchParams.get('room') || '';
+  if (!WS_ROOMS.includes(room)) return json({ error: 'غير مفعّل لهذه الغرفة' }, 404);
+  await ensureSchema(env);
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة' }, 401);
+  // الهوية تُمرَّر للكائن بترويسات داخلية (تُستبدل دائماً، فلا يستطيع العميل تزويرها)
+  const sh = await activeSanction(env, u.id, 'shadow', null, Date.now());
+  const r2 = new Request(req);
+  r2.headers.set('x-uid', String(u.id));
+  r2.headers.set('x-uname', encodeURIComponent(u.name || ''));
+  r2.headers.set('x-sh', sh ? '1' : '0');
+  return env.ROOM.get(env.ROOM.idFromName(room)).fetch(r2);
+}
+
+// المرحلة 3: رسالة عادية جديدة تُرسَل كاملة للمتصلين (بلا استعلام poll منهم).
+// تُستثنى حالات يجب أن تمرّ عبر poll لأن فلاترها في الخادم: الاستطلاعات، والمُخفي (shadow).
+// فلتر التجاهل يُطبَّق في المتصفح لأنه خاص بكل مستخدم؛ وأي شيء غير مؤكد يرجع لإشارة «p».
+async function payloadFor(env, rs) {
+  const j = await rs.json();
+  if (!j || !j.ok || !j.id || (j.kind && j.kind !== 'sys')) return null;
+  const r = await env.DB.prepare(
+    'SELECT m.id,m.user_id,m.uname,m.text,m.rn,m.rt,m.rid,m.ts,m.kind,m.ed,m.del,m.pl,m.orig,u.role,u.rank,pf.iv FROM messages m LEFT JOIN users u ON u.id=m.user_id LEFT JOIN profiles pf ON pf.user_id=m.user_id WHERE m.id=?'
+  ).bind(j.id).first();
+  if (!r || r.del) return null;
+  if (await activeSanction(env, r.user_id, 'shadow', null, Date.now())) return null;
+  return JSON.stringify({ t: 'm', r: msgRow(r, 0) });
+}
+
+// يُستدعى بعد نجاح عملية كتابة؛ أي فشل هنا لا يؤثر على الطلب الأصلي أبداً.
+async function pokeRooms(env, rq, rs, path) {
+  try {
+    if (!env.ROOM || !WS_ROOMS.length) return;
+    let b = null;
+    try { b = await rq.json(); } catch { /* بلا جسم JSON */ }
+    // رسالة خاصة: إشارة موجّهة للمستلم فقط في غرفته إن كانت مفعّلة، بدل إزعاج الجميع
+    if (path === '/api/pm/send') {
+      const to = b ? parseInt(b.to, 10) : 0;
+      if (!to) return;
+      const p = await env.DB.prepare('SELECT room FROM presence WHERE user_id=? AND ts>?').bind(to, Date.now() - ONLINE_MS).first();
+      if (p && WS_ROOMS.includes(p.room)) await env.ROOM.get(env.ROOM.idFromName(p.room)).poke('p', to);
+      return;
+    }
+    let rooms = WS_ROOMS;
+    if (b && typeof b.room === 'string' && b.room) rooms = WS_ROOMS.includes(b.room) ? [b.room] : [];
+    if (!rooms.length) return;
+    let msg = 'p';
+    if (rs && WS_PAYLOAD && rooms.length === 1) {
+      try { msg = (await payloadFor(env, rs)) || 'p'; } catch { msg = 'p'; }
+    }
+    await Promise.all(rooms.map((r) => env.ROOM.get(env.ROOM.idFromName(r)).poke(msg)));
+  } catch (e) {
+    console.error('poke', (e && e.message) || e);
+  }
+}
+
+export default {
+  async fetch(req, env, ctx) {
+    const url = new URL(req.url);
+    try {
+      if (url.pathname === '/api/ws') return await wsConnect(req, env, url);
+      if (req.method === 'GET' && url.pathname === '/api/ws/rooms') return json({ rooms: env.ROOM ? WS_ROOMS : [] });
+    } catch (e) {
+      return serverError(e, url.pathname);
+    }
+    const pk = req.method === 'POST' && WS_ROOMS.length && env.ROOM && POKE_PATH.test(url.pathname) ? req.clone() : null;
+    const res = await baseHandler.fetch(req, env);
+    if (pk && res.status === 200) ctx.waitUntil(pokeRooms(env, pk, url.pathname === '/api/post' ? res.clone() : null, url.pathname));
+    return res;
   },
 };
