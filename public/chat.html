@@ -1090,10 +1090,50 @@ applyUpd(r.j.upd,rm);
 if(r.j.pin!==undefined){var op=pins[rm]||null;if(r.j.pin)pins[rm]=r.j.pin;else delete pins[rm];if(rm===room&&op!==(r.j.pin||null))drawPin()}
 applyPM(r.j.pm);
 if(r.j.now){NET.ut=Math.max(1,r.j.now-1500);PN.ut=NET.ut}},function(){if(g===NET.gen)NET.busy=0}).then(schedule)}
-function schedule(){clearTimeout(NET.t);syncSoc();NET.t=setTimeout(poll,document.hidden?20000:4000)}
+function schedule(){clearTimeout(NET.t);syncSoc();NET.t=setTimeout(poll,document.hidden?20000:((window.WSC&&WSC.ok)?10000:4000))}
 function pollNow(){clearTimeout(NET.t);poll()}
 function startNet(){if(NET.on)return;NET.on=1;netReset();pollNow()}
 document.addEventListener('visibilitychange',function(){if(!document.hidden&&NET.on&&me)pollNow()});
+/* ===== المرحلة 2: WebSocket تجريبي (إشارة تحديث فقط؛ الرسائل تبقى عبر poll) ===== */
+var WS_PILOT=[];/* تأتي قائمة الغرف المفعّلة من الخادم (WS_ROOMS في config.js) */
+var WSC={ws:null,room:null,ok:0,n:0,next:0,seen:0,pi:0,pt:0,lp:0,rl:0,rt:0};
+function wsRooms(){try{fetch('/api/ws/rooms',{credentials:'same-origin'}).then(function(r){return r.json()}).then(function(j){if(j&&j.rooms){WS_PILOT=j.rooms;WSC.rl=1}}).catch(function(){})}catch(e){}}
+function wsPoke(){if(document.hidden||WSC.pt)return;var d=Math.max(0,2500-(Date.now()-WSC.lp));
+WSC.pt=setTimeout(function(){WSC.pt=0;WSC.lp=Date.now();if(NET.on&&me)pollNow()},d)}
+/* رسالة جديدة وصلت مباشرة: تُعرض دون poll، ولا يتقدّم NET.last حتى لا يضيع شيء؛ poll الاحتياطي يكمل أي فجوة */
+/* مؤشر «يكتب الآن»: يصل كإشارة خفيفة من الغرفة، ويُهمَل لمن تتجاهلهم */
+WSC.typ={};WSC.ty=0;
+function wsTypeShow(){var e=document.getElementById('ty');if(!e)return;var now=Date.now(),ns=[];
+for(var k in WSC.typ){if(now-WSC.typ[k].ts>5000)delete WSC.typ[k];else ns.push(WSC.typ[k].n)}
+e.textContent=ns.length?(ns.length===1?ns[0]+' يكتب الآن…':ns.length===2?ns[0]+' و'+ns[1]+' يكتبان الآن…':'عدة أشخاص يكتبون الآن…'):''}
+function wsTyp(j){if(!me||!j.id||j.id===me.id||WSC.room!==room||(window.ign&&ign[j.id]))return;
+WSC.typ[j.id]={n:String(j.n||'').slice(0,16),ts:Date.now()};wsTypeShow()}
+function wsTyping(){if(!WSC.ok||!WSC.ws||!me||me.muted||Date.now()-WSC.ty<3000)return;WSC.ty=Date.now();try{WSC.ws.send('t')}catch(e){}}
+document.addEventListener('input',function(e){var t=e.target;if(t&&t.id==='txt'&&t.value&&t.value.charAt(0)!=='/')wsTyping()});
+setInterval(wsTypeShow,1000);
+function wsMsg(r){if(r&&r.user_id)delete WSC.typ[r.user_id];
+if(!r||!me||NET.first||!IG.loaded||WSC.room!==room)return wsPoke();
+if(r.user_id===me.id||NET.seen[r.id]||ign[r.user_id])return;
+var l=NET.last;try{addRows([r],0)}finally{NET.last=l}}
+function wsDrop(backoff){clearInterval(WSC.pi);WSC.ws=null;WSC.ok=0;WSC.typ={};
+if(backoff){WSC.n++;WSC.next=WSC.n>=8?Infinity:Date.now()+Math.min(30000,2000*Math.pow(2,WSC.n))}
+if(NET.on&&me)pollNow()}
+function wsClose(){var w=WSC.ws;clearInterval(WSC.pi);WSC.ws=null;WSC.ok=0;WSC.typ={};WSC.next=0;try{if(w)w.close()}catch(e){}}
+function wsOpen(){var w;
+try{w=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.host+'/api/ws?room='+encodeURIComponent(room))}catch(e){WSC.next=Date.now()+30000;return}
+WSC.ws=w;WSC.room=room;WSC.seen=Date.now();
+w.onopen=function(){if(WSC.ws!==w)return;WSC.ok=1;WSC.n=0;WSC.seen=Date.now();
+WSC.pi=setInterval(function(){try{w.send('ping')}catch(e){}},25000);pollNow()};
+w.onmessage=function(ev){WSC.seen=Date.now();var d=ev.data;if(d==='p')wsPoke();else if(typeof d==='string'&&d.charAt(0)==='{'){try{var j=JSON.parse(d);if(j&&j.t==='m')wsMsg(j.r);else if(j&&j.t==='y')wsTyp(j)}catch(e){}}};
+w.onclose=function(){if(WSC.ws===w)wsDrop(true)};
+w.onerror=function(){if(WSC.ws===w)wsDrop(true)}}
+setInterval(function(){if(!me||!NET.on||!window.WebSocket)return;
+if(!WSC.rl&&Date.now()>=WSC.rt){WSC.rt=Date.now()+15000;wsRooms()}
+var want=WS_PILOT.indexOf(room)>-1&&!document.hidden;
+if(WSC.ws&&(WSC.room!==room||!want))wsClose();
+if(want&&!WSC.ws&&Date.now()>=WSC.next)wsOpen();
+if(WSC.ws&&WSC.ok&&Date.now()-WSC.seen>70000)wsDrop(true)},2000);
+
 function rsend(v){if(v.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');$('txt').value=v;grow();return}
 var rm=room,m=post(rm,me,v);if(!m)return;
 var q=m.q?{id:m.q.id,n:m.q.n,t:m.q.t}:null;NET.pend++;
