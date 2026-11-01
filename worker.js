@@ -132,8 +132,11 @@ function ensureSchema(env) {
 
 // ---------- المرحلة 6أ: أساس الإدارة ----------
 // أدنى مستوى (lvOf) لكل إجراء. تُفحص كلها في الخادم، ولا قيمة لما يظهر في المتصفح.
-const MOD_MIN = { warn: 2, mute: 2, kick: 3, ban: 5, tempban: 4, revoke: 4, rank: 4, delmsg: 2, wipe: 4, rename: 4, move: 4, roommod: 5, roommode: 3, emergency: 4, reports: 2, log: 3, note: 2, history: 2, stats: 4, shadow: 4, nopm: 4, slow: 4, delimg: 4, ipban: 5, propose: 2, propreview: 5, appeals: 4, linked: 5 };
+const MOD_MIN = { warn: 2, mute: 2, kick: 3, ban: 5, tempban: 4, revoke: 4, rank: 4, delmsg: 2, wipe: 4, rename: 4, move: 4, roommod: 5, roommode: 3, emergency: 4, reports: 2, log: 3, note: 2, history: 2, stats: 4, shadow: 4, nopm: 4, slow: 4, delimg: 4, ipban: 5, propose: 2, propreview: 5, appeals: 4, linked: 5, roomclear: 3, roomtopic: 3, roomflag: 3, roomban: 3 };
 const SLOW_MS = 10000;        // الوضع البطيء: رسالة كل 10 ثوانٍ
+// كشف الروابط لخيار «منع الروابط» في الغرفة (روابط صريحة ونطاقات شائعة)
+const LINK_RE = /(https?:\/\/|www\.|\b(?:t\.me|wa\.me|discord\.gg|bit\.ly)\b|\b[a-z0-9-]{2,}\.(?:com|net|org|io|me|ly|co|app|xyz|info|tv|cc|gg|ru|site|online|link|click)\b)/i;
+const TOPIC_MAX = 200;
 const ROOM_MODES = ['normal', 'slow', 'ro'];
 const WN = 3;                 // عدد التحذيرات قبل الكتم التلقائي
 const WARN_KEEP = 30 * DAY;   // مدة بقاء التحذير
@@ -1052,22 +1055,25 @@ async function poll(req, env, url) {
     ).bind(u.id, room, now).run();
   }
 
+  // حالة الغرفة: وقت التنظيف (ما قبله مخفي دون حذف) + الموضوع + خيارات الغرفة
+  const rs = await env.DB.prepare('SELECT cleared_at,topic,members_only,no_links FROM room_state WHERE room=?').bind(room).first();
+  const since = Math.max(now - KEEP, rs ? rs.cleared_at : 0);
   // المتجاهَلون لا تصل رسائلهم من الخادم أصلاً (يُفلتَر هنا وليس في المتصفح)
   const sel = 'SELECT m.id,m.user_id,m.uname,m.text,m.rn,m.rt,m.rid,m.ts,m.kind,m.ed,m.del,m.pl,m.orig,u.role,u.rank,pf.iv FROM messages m LEFT JOIN users u ON u.id=m.user_id LEFT JOIN profiles pf ON pf.user_id=m.user_id ';
   const ign = ' AND m.user_id NOT IN (' + IGN_SQL + ') ';
   let msgs;
   if (after > 0) {
     msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.id>? AND m.ts>? AND m.del<2' + ign + 'ORDER BY m.id LIMIT 100')
-      .bind(room, after, now - KEEP, u.id).all()).results;
+      .bind(room, after, since, u.id).all()).results;
   } else {
     msgs = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.ts>? AND m.del<2' + ign + 'ORDER BY m.id DESC LIMIT ' + HISTORY)
-      .bind(room, now - KEEP, u.id).all()).results.reverse();
+      .bind(room, since, u.id).all()).results.reverse();
   }
   // رسائل قديمة تغيّرت (تعديل/حذف/تفاعل/تصويت) منذ آخر نبضة
   let upd = [];
   if (after > 0 && ut > 0) {
     upd = (await env.DB.prepare(sel + 'WHERE m.room=? AND m.id<=? AND m.upd>? AND m.ts>?' + ign + 'ORDER BY m.upd LIMIT 100')
-      .bind(room, after, ut, now - KEEP, u.id).all()).results;
+      .bind(room, after, ut, since, u.id).all()).results;
   }
   if (vlv < 2) {
     const shw = new Set((await env.DB.prepare("SELECT user_id FROM sanctions WHERE kind='shadow' AND active=1 AND (until IS NULL OR until>?)").bind(now).all()).results.map((x) => x.user_id));
@@ -1099,7 +1105,8 @@ async function poll(req, env, url) {
   try { emg = emr ? { on: true, ...JSON.parse(emr.v) } : null; } catch { emg = null; }
   let annv = null;
   try { annv = anr ? JSON.parse(anr.v) : null; } catch { annv = null; }
-  const out = { msgs: msgs.map((r) => msgRow(r, vlv)), upd: upd.map((r) => msgRow(r, vlv)), pin: pin ? pin.v : null, rmode: rmd ? rmd.v : 'normal', emg, ann: annv, online, now, mute: mu ? { until: mu.until || 0, reason: mu.reason || '' } : null, warns, sx };
+  const out = { msgs: msgs.map((r) => msgRow(r, vlv)), upd: upd.map((r) => msgRow(r, vlv)), pin: pin ? pin.v : null, rmode: rmd ? rmd.v : 'normal', emg, ann: annv, online, now, mute: mu ? { until: mu.until || 0, reason: mu.reason || '' } : null, warns, sx,
+    clr: rs ? rs.cleared_at : 0, topic: rs ? rs.topic : '', rf: { mo: rs ? rs.members_only : 0, nl: rs ? rs.no_links : 0 } };
   const paRaw = url.searchParams.get('pa');
   if (paRaw !== null) out.pm = await pmFetch(env, u.id, parseInt(paRaw, 10) || 0, url.searchParams.get('pf') === '1', now, parseInt(url.searchParams.get('pu'), 10) || 0, vlv);
   const naRaw = url.searchParams.get('na');
@@ -1418,6 +1425,11 @@ async function postMsg(req, env) {
       if (lt && lt.t && now - lt.t < SLOW_MS) return json({ error: 'الوضع بطيء: رسالة كل ' + SLOW_MS / 1000 + ' ثوانٍ' }, 429);
     }
   }
+  const rst = await env.DB.prepare('SELECT members_only mo, no_links nl FROM room_state WHERE room=?').bind(room).first();
+  if (rst) {
+    if (rst.mo && u.role === 'visitor') return json({ error: 'هذه الغرفة للأعضاء المسجّلين فقط' }, 403);
+    if (rst.nl && LINK_RE.test(text) && lvOf(await uIn(env, u, room)) < 3) return json({ error: 'الروابط ممنوعة في هذه الغرفة' }, 400);
+  }
   const r = await env.DB.prepare('SELECT COUNT(*) c FROM messages WHERE user_id=? AND ts>?').bind(u.id, now - 5000).first();
   if (r.c >= 4) return json({ error: 'أبطئ قليلاً، رسائلك كثيرة' }, 429);
   const wh = await wwCheck(env, u, text);
@@ -1465,7 +1477,7 @@ async function postMsg(req, env) {
 // يجلب رسالة غرفة (scope r) أو خاص (scope p) مع بيانات صاحبها
 async function loadMsg(env, scope, id) {
   if (scope === 'p') return await env.DB.prepare('SELECT id,from_id user_id,to_id,text,ts,del,NULL kind,NULL role,NULL rank FROM pms WHERE id=?').bind(id).first();
-  return await env.DB.prepare('SELECT m.id,m.user_id,m.room,m.text,m.ts,m.del,m.kind,u.role,u.rank FROM messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?').bind(id).first();
+  return await env.DB.prepare('SELECT m.id,m.user_id,m.uname,m.room,m.text,m.ts,m.del,m.kind,u.role,u.rank FROM messages m LEFT JOIN users u ON u.id=m.user_id WHERE m.id=?').bind(id).first();
 }
 
 async function msgEdit(req, env) {
@@ -1510,6 +1522,14 @@ async function msgDelete(req, env) {
   const st = [];
   if (scope === 'p') {
     st.push(env.DB.prepare("UPDATE pms SET del=1, text='', rn=NULL, rt=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+  } else if (m.user_id !== u.id) {
+    // مشرف يحذف رسالة غيره: تُزال تماماً من شاشات الجميع بلا عبارة «تم الحذف» (del=2 كما في مسح الرسائل)
+    st.push(env.DB.prepare("UPDATE messages SET del=2, uname='', text='', rn=NULL, rt=NULL, rid=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+    // الردود التي تقتبس الرسالة المحذوفة تفقد الاقتباس
+    st.push(env.DB.prepare('UPDATE messages SET rn=NULL, rt=NULL, rid=NULL, upd=? WHERE rid=?').bind(now, id));
+    st.push(env.DB.prepare('DELETE FROM poll_votes WHERE mid=?').bind(id));
+    st.push(env.DB.prepare('DELETE FROM pins WHERE mid=?').bind(id));
+    st.push(logStmt(env, u, 'delmsg', { id: m.user_id, name: m.uname }, 'رسالة واحدة', now));
   } else {
     st.push(env.DB.prepare("UPDATE messages SET del=1, text='', rn=NULL, rt=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
     st.push(env.DB.prepare('DELETE FROM poll_votes WHERE mid=?').bind(id));
@@ -2370,6 +2390,117 @@ async function modAppealReview(req, env) {
   return json({ ok: true });
 }
 
+// ---------- التحكم بالغرف: تنظيف | موضوع | للأعضاء فقط | منع الروابط | منع من دخول غرفة ----------
+// تُفحص الصلاحية داخل الغرفة المعنيّة (مشرف الغرفة = مستوى 3 في غرفته فقط)
+async function roomCtl(req, env, action) {
+  const u = await currentUser(req, env);
+  if (!u) return { res: json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401) };
+  const b = await readBody(req);
+  if (!b) return { res: json({ error: 'طلب غير صالح' }, 400) };
+  const room = String(b.room || '');
+  if (!ROOMS.includes(room)) return { res: json({ error: 'غرفة غير موجودة' }, 400) };
+  const a = await uIn(env, u, room);
+  if (lvOf(a) < MOD_MIN[action]) return { res: json({ error: 'لا تملك صلاحية هذا الإجراء في هذه الغرفة' }, 403) };
+  return { u, a, b, room, now: Date.now() };
+}
+
+// تنظيف الغرفة: لا يُحذف شيء من القاعدة، بل تُخفى الرسائل الأقدم عن الجميع (يحذفها التنظيف الدوري بعد 30 يوماً)
+async function roomClear(req, env) {
+  const c = await roomCtl(req, env, 'roomclear');
+  if (c.res) return c.res;
+  const { u, room, now } = c;
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO room_state(room,cleared_at,cleared_by,upd) VALUES(?,?,?,?) ON CONFLICT(room) DO UPDATE SET cleared_at=excluded.cleared_at, cleared_by=excluded.cleared_by, upd=excluded.upd')
+      .bind(room, now, u.id, now),
+    env.DB.prepare("INSERT INTO messages(room,user_id,uname,text,rn,rt,rid,ts,kind,pl,upd) VALUES(?,?,?,?,NULL,NULL,NULL,?,'sys',NULL,0)")
+      .bind(room, u.id, u.name, '🧹 ' + u.name + ' نظّف الغرفة', now + 1),
+    logStmt(env, u, 'roomclear', null, room, now),
+  ]);
+  return json({ ok: true, clr: now });
+}
+
+async function roomTopic(req, env) {
+  const c = await roomCtl(req, env, 'roomtopic');
+  if (c.res) return c.res;
+  const { u, b, room, now } = c;
+  const topic = cleanText(b.topic).replace(/\s*\n\s*/g, ' ').slice(0, TOPIC_MAX);
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO room_state(room,topic,topic_by,upd) VALUES(?,?,?,?) ON CONFLICT(room) DO UPDATE SET topic=excluded.topic, topic_by=excluded.topic_by, upd=excluded.upd')
+      .bind(room, topic, u.id, now),
+    logStmt(env, u, 'roomtopic', null, room + (topic ? ' | ' + topic : ' | إزالة الموضوع'), now),
+  ]);
+  return json({ ok: true, topic });
+}
+
+// خيارات الغرفة: members_only (يمنع الزوار من الكتابة) | no_links (يمنع الروابط لغير المشرفين)
+async function roomFlag(req, env) {
+  const c = await roomCtl(req, env, 'roomflag');
+  if (c.res) return c.res;
+  const { u, b, room, now } = c;
+  const key = b.key === 'members_only' ? 'members_only' : b.key === 'no_links' ? 'no_links' : null;
+  if (!key) return json({ error: 'خيار غير معروف' }, 400);
+  const on = b.on === true ? 1 : 0;
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO room_state(room,' + key + ',upd) VALUES(?,?,?) ON CONFLICT(room) DO UPDATE SET ' + key + '=excluded.' + key + ', upd=excluded.upd')
+      .bind(room, on, now),
+    logStmt(env, u, 'roomflag', null, room + ' | ' + key + '=' + on, now),
+  ]);
+  return json({ ok: true, key, on: !!on });
+}
+
+// منع عضو من دخول غرفة محددة (حتى لو كان في غرفة أخرى الآن). يُفرض بنفس آلية الطرد: poll وpost يرفضان
+async function roomBan(req, env) {
+  const c = await roomCtl(req, env, 'roomban');
+  if (c.res) return c.res;
+  const { u, a, b, room, now } = c;
+  const tid = parseInt(b.target, 10) || 0;
+  if (!tid) return json({ error: 'طلب غير صالح' }, 400);
+  if (tid === u.id) return json({ error: 'لا يمكنك تطبيق هذا على نفسك' }, 400);
+  const t = await env.DB.prepare('SELECT id,name,role,rank FROM users WHERE id=?').bind(tid).first();
+  if (!t) return json({ error: 'المستخدم غير موجود' }, 404);
+  if (!canMod(a, t, MOD_MIN.roomban)) return json({ error: 'لا يمكنك تطبيق هذا على من رتبته مساوية لك أو أعلى' }, 403);
+  const d = untilFrom(b.minutes, 'kick', now);
+  if (d.err) return json({ error: 'المنع من الغرفة يحتاج مدة' }, 400);
+  const reason = cleanText(b.reason).slice(0, MAX_REASON);
+  const st = sanctionStmts(env, u, t, 'kick', room, reason, d.until, now);
+  st.push(notifStmt(env, t.id, 'warn', 'مُنعت من دخول غرفة ' + room + ' (بواسطة ' + u.name + ')' + (reason ? ' — السبب: ' + reason : ''), null, now));
+  await env.DB.batch(st);
+  return json({ ok: true, until: d.until });
+}
+
+// رفع المنع من غرفة (يعمل حتى لو كان المستخدم غير متصل)
+async function roomUnban(req, env) {
+  const c = await roomCtl(req, env, 'roomban');
+  if (c.res) return c.res;
+  const { u, b, room, now } = c;
+  const tid = parseInt(b.target, 10) || 0;
+  if (!tid) return json({ error: 'طلب غير صالح' }, 400);
+  const cur = await env.DB.prepare("SELECT s.by_id,x.role,x.rank FROM sanctions s LEFT JOIN users x ON x.id=s.by_id WHERE s.user_id=? AND s.kind='kick' AND s.room=? AND s.active=1 AND (s.until IS NULL OR s.until>?) ORDER BY s.id DESC LIMIT 1")
+    .bind(tid, room, now).first();
+  if (!cur) return json({ error: 'لا يوجد منع فعّال من هذه الغرفة' }, 404);
+  // لا يرفعه من هو أدنى ممن وضعه (إلا المالك أو صاحبه نفسه)
+  if (u.role !== 'owner' && cur.by_id !== u.id && cur.role && pwOf(u) < pwOf({ role: cur.role, rank: cur.rank || 0 })) return json({ error: 'وضعه من هو أعلى منك، ولا تستطيع رفعه' }, 403);
+  const t = await env.DB.prepare('SELECT id,name FROM users WHERE id=?').bind(tid).first();
+  await env.DB.batch([
+    env.DB.prepare("UPDATE sanctions SET active=0, lifted_by=?, lifted_ts=? WHERE user_id=? AND kind='kick' AND room=? AND active=1").bind(u.id, now, tid, room),
+    logStmt(env, u, 'unkick', t, room, now),
+    notifStmt(env, tid, 'info', 'تم رفع منعك من غرفة ' + room + ' بواسطة ' + u.name, null, now),
+  ]);
+  return json({ ok: true });
+}
+
+// قائمة الممنوعين حالياً من غرفة (لمن يملك صلاحية المنع فيها)
+async function roomBans(req, env, url) {
+  const u = await currentUser(req, env);
+  if (!u) return json({ error: 'انتهت الجلسة' }, 401);
+  const room = url.searchParams.get('room') || '';
+  if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
+  if (lvOf(await uIn(env, u, room)) < MOD_MIN.roomban) return json({ error: 'لا تملك صلاحية هذا الإجراء في هذه الغرفة' }, 403);
+  const rows = (await env.DB.prepare("SELECT s.user_id,x.name,s.reason,s.by_name,s.until FROM sanctions s JOIN users x ON x.id=s.user_id WHERE s.kind='kick' AND s.room=? AND s.active=1 AND (s.until IS NULL OR s.until>?) ORDER BY s.id DESC LIMIT 100")
+    .bind(room, Date.now()).all()).results;
+  return json({ ok: true, list: rows });
+}
+
 async function logout(req, env) {
   const tok = getCookie(req, 'sid');
   if (tok) await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha256(tok)).run();
@@ -2410,14 +2541,14 @@ export default {
         SOC_POST['/api/mod/un' + k] = (rq, ev) => modLift(rq, ev, k);
       }
       Object.assign(SOC_POST, { '/api/mod/warn': modWarn, '/api/mod/rank': modRank, '/api/mod/revoke': modRevoke, '/api/mod/restore': modRestore,
-        '/api/mod/rename': modRename, '/api/mod/move': modMove, '/api/room/mod': roomModSet, '/api/room/mode': roomModeSet, '/api/mod/emergency': emergencySet, '/api/ww/list': wwList, '/api/ww/save': wwSave, '/api/ww/del': wwDel, '/api/ww/lock': wwLock, '/api/owner/log/del': ownerLogDel, '/api/owner/report/del': ownerReportDel, '/api/owner/log/hide': ownerLogHide, '/api/owner/report/hide': ownerReportHide, '/api/mod/report/done': modReportDone, '/api/mod/note': modNote,
+        '/api/mod/rename': modRename, '/api/mod/move': modMove, '/api/room/mod': roomModSet, '/api/room/clear': roomClear, '/api/room/topic': roomTopic, '/api/room/flag': roomFlag, '/api/mod/roomban': roomBan, '/api/mod/roomunban': roomUnban, '/api/room/mode': roomModeSet, '/api/mod/emergency': emergencySet, '/api/ww/list': wwList, '/api/ww/save': wwSave, '/api/ww/del': wwDel, '/api/ww/lock': wwLock, '/api/owner/log/del': ownerLogDel, '/api/owner/report/del': ownerReportDel, '/api/owner/log/hide': ownerLogHide, '/api/owner/report/hide': ownerReportHide, '/api/mod/report/done': modReportDone, '/api/mod/note': modNote,
         '/api/mod/delmsg': (rq, ev) => modDelMsgs(rq, ev, 'delmsg'), '/api/mod/wipe': (rq, ev) => modDelMsgs(rq, ev, 'wipe'),
         '/api/mod/tempban': (rq, ev) => modApply(rq, ev, 'ban', 'tempban'),
         '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/mod/ipban': modIpBan, '/api/mod/unipban': modIpLift, '/api/mod/propose': modPropose, '/api/mod/prop/review': modPropReview, '/api/mod/appeal/review': modAppealReview, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/gift/delete': giftDelete, '/api/name/change': nameChange, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend, '/api/news/post': newsPost, '/api/news/del': newsDel,
         '/api/conf/send': confSend, '/api/conf/del': confDel, '/api/conf/block': confBlock, '/api/conf/report': confReport,
         '/api/spy/open': spyOpenH, '/api/spy/flag': spyFlagH, '/api/spy/note': spyNoteH, '/api/spy/review': spyReviewH, '/api/spy/log/clear': spyLogClearH });
       const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
-      const PF_GET = { '/api/shop/state': shopState, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
+      const PF_GET = { '/api/room/bans': roomBans, '/api/shop/state': shopState, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);

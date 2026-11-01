@@ -354,3 +354,6 @@ CREATE TABLE IF NOT EXISTS shop_extra (id TEXT PRIMARY KEY, t TEXT NOT NULL, n T
 CREATE TABLE IF NOT EXISTS shop_hidden (item_id TEXT PRIMARY KEY);
 CREATE TABLE IF NOT EXISTS shop_sales (item_id TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0);
 CREATE TABLE IF NOT EXISTS user_settings (user_id INTEGER PRIMARY KEY, st TEXT, pf TEXT, upd INTEGER NOT NULL DEFAULT 0);
+
+-- حالة الغرف: وقت التنظيف (تُخفى الرسائل الأقدم دون حذفها) + موضوع الغرفة + للأعضاء فقط + منع الروابط
+CREATE TABLE IF NOT EXISTS room_state (room TEXT PRIMARY KEY, cleared_at INTEGER NOT NULL DEFAULT 0, cleared_by INTEGER, topic TEXT NOT NULL DEFAULT '', topic_by INTEGER, members_only INTEGER NOT NULL DEFAULT 0, no_links INTEGER NOT NULL DEFAULT 0, upd INTEGER NOT NULL DEFAULT 0);
