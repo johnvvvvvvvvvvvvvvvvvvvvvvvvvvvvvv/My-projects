@@ -770,7 +770,9 @@ var _mm=msgMenu;msgMenu=function(m,e,isPM){_mm(m,e,isPM);var mn=$('menu');
 function add(t,fn){var b=el('button','g',t);b.onclick=function(){mn.style.display='none';fn()};mn.appendChild(b)}
 if(!m.s&&m.t){add('⭐ حفظ الرسالة',function(){ST.sv.unshift({t:m.t,n:m.u?m.u.name:'',ts:Date.now()});ST.sv=ST.sv.slice(0,100);saveST();toast('⭐ حُفظت')});
 if(m.u===me&&Date.now()-m.ts<3e5){
-}};
+}
+}
+};
 
 /* أدوات الواجهة: قواعد الغرف، المسودات، البحث السريع */
 var lastRoom=null;
