@@ -74,7 +74,6 @@ function ensureDatabase(env, seedWatchWords) {
   return schemaP;
 }
 
-// المرحلة 5: أعمدة جديدة تُضاف للجداول الموجودة (دون حذف أي بيانات)
 const MIG = {
   messages: [
     ['ed', 'INTEGER'],
@@ -82,7 +81,9 @@ const MIG = {
     ['kind', 'TEXT'],
     ['pl', 'TEXT'],
     ['orig', 'TEXT'],
-    ['upd', 'INTEGER NOT NULL DEFAULT 0']
+    ['upd', 'INTEGER NOT NULL DEFAULT 0'],
+    ['del_text', 'TEXT'],
+    ['del_ts', 'INTEGER']
   ],
 
   visits: [
@@ -115,7 +116,9 @@ const MIG = {
     ['orig', 'TEXT'],
     ['upd', 'INTEGER NOT NULL DEFAULT 0'],
     ['del_from', 'INTEGER NOT NULL DEFAULT 0'],
-    ['del_to', 'INTEGER NOT NULL DEFAULT 0']
+    ['del_to', 'INTEGER NOT NULL DEFAULT 0'],
+    ['del_text', 'TEXT'],
+    ['del_ts', 'INTEGER']
   ]
 };
 async function migrate(env) {
@@ -135,11 +138,10 @@ async function migrate(env) {
   ]);
 }
 
-// يتحقق أن الجداول بالبنية المطلوبة (جدول قديم بنفس الاسم لا يُستبدل تلقائياً ويسبب أخطاء غامضة)
 const WANT = {
-  messages: ['id', 'room', 'user_id', 'uname', 'text', 'rn', 'rt', 'rid', 'ts', 'ed', 'del', 'kind', 'pl', 'orig', 'upd'],
+  messages: ['id', 'room', 'user_id', 'uname', 'text', 'rn', 'rt', 'rid', 'ts', 'ed', 'del', 'kind', 'pl', 'orig', 'upd', 'del_text', 'del_ts'],
   presence: ['user_id', 'room', 'ts'],
-  pms: ['id', 'from_id', 'to_id', 'text', 'rn', 'rt', 'rid', 'ts', 'exp', 'read_at', 'ed', 'del', 'orig', 'upd', 'del_from', 'del_to'],
+  pms: ['id', 'from_id', 'to_id', 'text', 'rn', 'rt', 'rid', 'ts', 'exp', 'read_at', 'ed', 'del', 'orig', 'upd', 'del_from', 'del_to', 'del_text', 'del_ts'],
   friendships: ['user_id', 'friend_id', 'ts'],
   friend_requests: ['from_id', 'to_id', 'ts'],
   notifications: ['id', 'user_id', 'ty', 'text', 'ref', 'ts', 'rd', 'done'],
@@ -215,6 +217,5 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM sanctions WHERE (active=0 OR (until IS NOT NULL AND until<?)) AND ts<?').bind(now, now - 3 * KEEP),
   ]);
 }
-
 
 export { ensureDatabase, cleanup };
