@@ -814,7 +814,7 @@ if(isMod())rowB(c,'📈 لوحة الإدارة',dash);
 if(me&&me.role==='owner')rowB(c,'💾 تنزيل نسخة احتياطية',backup)})}
 var hb=el('button','','🧰');hb.id='hub15';hb.title='الأدوات';hb.onclick=hub;document.body.appendChild(hb);
 var w=setInterval(function(){if(!me)return;hb.style.display='block';if(!ST.tour){setTimeout(function(){if(!ST.tour)tour()},1500)}clearInterval(w)},500);
-})();
+}();
 
 setInterval(function(){users.forEach(susp)},15000);
 new MutationObserver(function(){[].forEach.call($('menu').querySelectorAll('button'),function(b){if(['حظر','طرد من الغرفة','كتم','سحب الصلاحيات'].indexOf(b.textContent)>-1)b.classList.add('dg')})}).observe($('menu'),{childList:true});
