@@ -4,34 +4,30 @@ export const RESERVED = /(admin|owner|moderator|operator|ادمن|أدمن|مش�
 export const DAY = 864e5;
 export const enc = new TextEncoder();
 export const ROOMS = ['العامة', 'الخليج', 'مصر', 'المغرب العربي', 'الشباب', 'الثقافة والمنوعات'];
-export const KEEP = 30 * DAY;      // مدة حفظ الرسائل
-export const ONLINE_MS = 75000;    // يُعدّ المستخدم متصلاً إن كان آخر نبض خلال 75 ثانية (كان 45؛ رُفع لأن الحضور يُكتب الآن بوتيرة أقل)
-export const PRES_WRITE_MS = 25000; // أقل فاصل بين كتابتين لسجل الحضور لنفس المستخدم في نفس الغرفة
-// الغرف المفعّلة لـ WebSocket. المرحلة 6: التوسّع غرفة بعد غرفة بإضافة اسمها هنا فقط (والواجهة تقرأ القائمة من الخادم).
-// الترتيب المقترح للإضافة بعد نجاح كل غرفة يوماً كاملاً: 'الشباب' ثم 'مصر' ثم 'المغرب العربي' ثم 'الخليج' وأخيراً 'العامة'.
-// للتراجع الفوري: احذف الغرفة من القائمة (أو اجعلها [] لإيقاف الميزة كلها) ثم انشر.
+export const KEEP = 30 * DAY;
+export const ONLINE_MS = 75000;
+export const PRES_WRITE_MS = 25000;
 export const WS_ROOMS = ['الثقافة والمنوعات', 'الشباب'];
-export const WS_PAYLOAD = true;   // المرحلة 3: إرسال الرسائل العادية مباشرة عبر WebSocket في الغرف التجريبية (false = إشارة تحديث فقط)
+export const WS_PAYLOAD = true;
 export const MAX_TEXT = 500;
-export const HISTORY = 15;        // عدد الرسائل القديمة عند دخول الغرفة
-export const TMP_OK = [30000, 3600000, 86400000]; // مدد الرسائل المؤقتة المسموحة: 30 ث، ساعة، يوم
-export const PM_HISTORY = 200;    // عدد رسائل الخاص المحمّلة عند الدخول
+export const HISTORY = 15;
+export const TMP_OK = [30000, 3600000, 86400000];
+export const PM_HISTORY = 200;
 export const MAX_FRIENDS = 200;
 export const MAX_IGNORES = 300;
-export const EDIT_MS = 15 * 6e4;   // مهلة تعديل الرسالة
+export const EDIT_MS = 15 * 6e4;
 export const EMOJI = ['👍', '❤️', '😂', '😮', '😢'];
 export const LVN = { visitor: 0, member: 1, rankmod: 2, roommod: 3, genmod: 4, super: 5, programmer: 6, owner: 7 };
 export function lvOf(u) {
   const b = lvBase(u);
-  return u.lvx && !u.rv && u.lvx > b ? u.lvx : b; // lvx = رفع مؤقت لمشرف الغرفة داخل غرفته فقط
+  return u.lvx && !u.rv && u.lvx > b ? u.lvx : b;
 }
 export function lvBase(u) {
-  if (u.rv && u.role !== 'owner') return u.role === 'visitor' ? 0 : 1; // سُحبت صلاحياته مؤقتاً
+  if (u.rv && u.role !== 'owner') return u.role === 'visitor' ? 0 : 1;
   if (u.role === 'member') { const r = u.rank || 0; return r >= 98 ? 5 : r >= 91 ? 4 : r >= 90 ? 2 : 1; }
   return LVN[u.role] || 0;
 }
 export const pwOf = (u) => u.rv && u.role !== 'owner' ? lvOf(u) * 100 : lvOf(u) * 100 + (u.role === 'member' ? (u.rank || 0) : 0);
-// سقف الرتبة التي يحق للمستخدم منحها (كما في الواجهة)
 export const capOf = (u) => u.role === 'owner' ? 100 : u.role === 'programmer' ? 90 : lvOf(u) >= 5 ? 40 : lvOf(u) === 4 ? 20 : 0;
 export function canMod(a, t, min) {
   if (a.id === t.id) return false;
@@ -39,4 +35,4 @@ export function canMod(a, t, min) {
   if (t.role === 'owner') return false;
   return lvOf(a) >= min && pwOf(a) > pwOf(t);
 }
-export const DEBUG = true;       // true يُظهر سبب خطأ الخادم للتشخيص فقط
+export const DEBUG = false;
