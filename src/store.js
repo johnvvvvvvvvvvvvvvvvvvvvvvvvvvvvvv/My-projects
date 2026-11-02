@@ -8,13 +8,16 @@ const START_COINS = 200;          // رصيد البداية لكل عضو جد�
 const GIFT_COINS_DAY = 50;        // أقصى عملات يهديها العضو في اليوم
 const TZ = 4 * 36e5;              // حدود اليوم بتوقيت الإمارات (UTC+4)
 const MAX_WISH = 60;
-const MAX_EXTRA = 200;            // أقصى عدد أغراض يضيفها المشرفون
+const MAX_EXTRA = 500;            // أقصى عدد أغراض يضيفها المشرفون (يشمل البنرات المرفوعة)
+const MAX_BANNERS = 300;          // أقصى عدد بنرات مرفوعة من الجهاز
+const BANNER_MAX = 260000;        // أقصى طول لنص base64 للبنر (نحو 190KB)
+const JPEG_B64 = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/;
 const MAX_ST = 120000;            // أقصى حجم لإعدادات المستخدم (حرف)
 const SET_GAP = 1000;             // أدنى فاصل بين حفظين للإعدادات (مللي ثانية)
 
-const TYPES = ['name', 'frame', 'theme', 'bg', 'bubble', 'title'];
+const TYPES = ['name', 'frame', 'theme', 'bg', 'bubble', 'title', 'namefx', 'banner', 'icon'];
 const RARITY = ['common', 'rare', 'epic', 'ltd'];
-const THEME_KEYS = ['royal', 'neon', 'space'];   // الثيمات المعرّفة في الواجهة
+const THEME_KEYS = ['royal', 'neon', 'space', 'rose', 'emerald', 'dusk'];   // الثيمات المعرّفة في الواجهة
 const BG_KEYS = ['stars', 'arab'];               // الخلفيات المعرّفة في الواجهة
 const RSV = /(admin|owner|moderator|operator|ادمن|أدمن|مشرف|صاحب|مبرمج|سوبر)/i;
 const RESERVED_COLORS = ['#dc2626', '#7c3aed', '#be123c', '#0f766e', '#1d4ed8', '#4d7c0f']; // ألوان الرتب الإدارية
@@ -37,7 +40,23 @@ const ITEMS = [
   { id: 'tt1', t: 'title', n: 'لقب النجم', v: '⭐ النجم', p: 50, r: 'common' },
   { id: 'tt2', t: 'title', n: 'لقب الفارس', v: '🛡️ الفارس', p: 50, r: 'common' },
   { id: 'tt3', t: 'title', n: 'لقب الملك', v: '👑 الملك', p: 200, r: 'ltd' },
+  { id: 'th4', t: 'theme', n: 'ثيم وردي', v: 'rose', p: 120, r: 'epic' },
+  { id: 'th5', t: 'theme', n: 'ثيم زمردي', v: 'emerald', p: 120, r: 'epic' },
+  { id: 'th6', t: 'theme', n: 'ثيم الشفق', v: 'dusk', p: 130, r: 'epic' },
 ];
+// حزمة الأصول المبنية بـ CSS (المفتاح v يقابل صنفاً في الواجهة: nfx-* للأسماء، frm-* للإطارات، bnr-* للبنرات)
+const NFX = [['gold', 'ذهبي لامع'], ['neon', 'نيون متوهج'], ['fire', 'لهب'], ['ice', 'جليد'], ['rainbow', 'قوس قزح'], ['sunset', 'غروب'],
+  ['aurora', 'شفق'], ['candy', 'حلوى'], ['steel', 'فولاذ'], ['lava', 'حمم'], ['ocean', 'محيط'], ['royal', 'ملكي']];
+const FRM = [['gold', 'ذهبي'], ['neon', 'نيون'], ['pulse', 'نبض'], ['rainbow', 'ألوان متحركة'], ['fire', 'نار'], ['ice', 'ثلج'],
+  ['rose', 'وردي'], ['emerald', 'زمردي'], ['royal', 'ملكي'], ['dots', 'نقاط'], ['double', 'مزدوج'], ['glow', 'توهج']];
+const BNR = [['sunset', 'غروب'], ['ocean', 'محيط'], ['aurora', 'شفق'], ['desert', 'صحراء'], ['night', 'ليل'], ['forest', 'غابة'], ['candy', 'حلوى'], ['gold', 'ذهب']];
+const rar = (i) => (i < 4 ? 'common' : i < 8 ? 'rare' : 'epic');
+NFX.forEach((x, i) => ITEMS.push({ id: 'nx_' + x[0], t: 'namefx', n: 'اسم ' + x[1], v: x[0], p: 50 + i * 10, r: rar(i) }));
+FRM.forEach((x, i) => ITEMS.push({ id: 'fx_' + x[0], t: 'frame', n: 'إطار ' + x[1], v: x[0], p: 60 + i * 10, r: rar(i) }));
+BNR.forEach((x, i) => ITEMS.push({ id: 'bn_' + x[0], t: 'banner', n: 'بنر ' + x[1], v: x[0], p: 70 + i * 15, r: rar(i) }));
+[['😎', 'أيقونة النظارة', 40], ['🔥', 'أيقونة النار', 60], ['💎', 'أيقونة الألماس', 120], ['🌙', 'أيقونة الهلال', 50]]
+  .forEach((x, i) => ITEMS.push({ id: 'ic' + (i + 1), t: 'icon', n: x[1], v: x[0], p: x[2], r: x[2] >= 100 ? 'epic' : 'common' }));
+const keyOf = (L, v) => L.some((x) => x[0] === v);
 // k: نوع العداد، g: الهدف، c: المكافأة
 const TASKS = [
   { id: 't1', n: 'أرسل 5 رسائل', k: 'msg', g: 5, c: 20 },
@@ -295,7 +314,11 @@ const shopAdmin = wrap(async (req, env) => {
     const t = String(b.t || '');
     const r = String(b.r || '');
     if (!n || !(p >= 1 && p <= 100000) || !TYPES.includes(t) || !RARITY.includes(r)) throw new ShopErr('بيانات الغرض غير صالحة');
-    if (t === 'name' || t === 'frame' || t === 'bubble') { if (!/^#[0-9a-f]{6}$/i.test(v)) throw new ShopErr('اللون غير صحيح'); }
+    if (t === 'frame' && keyOf(FRM, v)) { /* إطار جاهز بمفتاح */ }
+    else if (t === 'namefx') { if (!keyOf(NFX, v)) throw new ShopErr('مفتاح ستايل الاسم: ' + NFX.map((x) => x[0]).join(' / ')); }
+    else if (t === 'banner') { if (!keyOf(BNR, v)) throw new ShopErr('مفتاح البنر: ' + BNR.map((x) => x[0]).join(' / ') + ' (أو ارفع صورة من تبويب البنرات)'); }
+    else if (t === 'icon') { if (!v || v.length > 8) throw new ShopErr('الأيقونة: رمز إيموجي واحد'); }
+    else if (t === 'name' || t === 'frame' || t === 'bubble') { if (!/^#[0-9a-f]{6}$/i.test(v)) throw new ShopErr('اللون غير صحيح'); }
     else if (t === 'theme') { if (!THEME_KEYS.includes(v)) throw new ShopErr('مفتاح الثيم: ' + THEME_KEYS.join(' / ')); }
     else if (t === 'bg') { if (!BG_KEYS.includes(v)) throw new ShopErr('مفتاح الخلفية: ' + BG_KEYS.join(' / ')); }
     else if (!v) throw new ShopErr('اكتب نص اللقب');
@@ -313,6 +336,59 @@ const shopAdmin = wrap(async (req, env) => {
   } else throw new ShopErr('عملية غير معروفة');
   return json({ ok: true, shop: await view(env, u, { adm: true }) });
 });
+
+// رفع بنرات للمتجر من جهاز المشرف: سوبر أدمن فما فوق. الصورة تُخزَّن في D1 والسعر يحدده الرافع
+const canBanner = (u) => lvOf(u) >= 5;
+const shopBanner = wrap(async (req, env) => {
+  const u = await member(req, env);
+  if (!canBanner(u)) throw new ShopErr('رفع البنرات للسوبر أدمن وما فوق', 403);
+  const b = (await readBody(req)) || {};
+  const op = String(b.op || '');
+  if (op === 'add') {
+    const n = String(b.n || '').trim().slice(0, 24);
+    const p = parseInt(b.p, 10);
+    const r = String(b.r || '');
+    const m = JPEG_B64.exec(String(b.img || ''));
+    if (!n || !(p >= 1 && p <= 100000) || !RARITY.includes(r)) throw new ShopErr('اكتب الاسم والسعر واختر الندرة');
+    if (RSV.test(n)) throw new ShopErr('⛔ الاسم يشبه رتبة إدارية');
+    if (!m || m[1].length > BANNER_MAX || m[1].length % 4 !== 0 || !m[1].startsWith('/9j/')) throw new ShopErr('الصورة غير صالحة أو كبيرة');
+    const c = await env.DB.batch([
+      env.DB.prepare('SELECT COUNT(*) n FROM shop_banners'),
+      env.DB.prepare('SELECT COUNT(*) n FROM shop_extra'),
+    ]);
+    if (c[0].results[0].n >= MAX_BANNERS) throw new ShopErr('وصلت للحد الأقصى من البنرات المرفوعة');
+    if (c[1].results[0].n >= MAX_EXTRA) throw new ShopErr('وصلت للحد الأقصى من الأغراض المضافة');
+    const bid = 'b' + rand(6), now = Date.now();
+    await env.DB.batch([
+      env.DB.prepare('INSERT INTO shop_banners(id,d,ts) VALUES(?,?,?)').bind(bid, m[1], now),
+      env.DB.prepare('INSERT INTO shop_extra(id,t,n,v,p,r,ts) VALUES(?,?,?,?,?,?,?)').bind('x' + rand(5), 'banner', n, 'img:' + bid, p, r, now),
+    ]);
+  } else if (op === 'price' || op === 'hide' || op === 'show') {
+    const id = String(b.id || '');
+    const it = findItem(await catalog(env), id);
+    if (!it || it.t !== 'banner') throw new ShopErr('البنر غير موجود', 404);
+    if (op === 'price') {
+      const p = parseInt(b.p, 10);
+      if (!(p >= 1 && p <= 100000)) throw new ShopErr('السعر غير صالح');
+      const r = await env.DB.prepare("UPDATE shop_extra SET p=? WHERE id=? AND t='banner'").bind(p, id).run();
+      if (!r.meta.changes) throw new ShopErr('لا يمكن تغيير سعر البنرات الجاهزة من هنا', 400);
+    } else if (op === 'hide') await env.DB.prepare('INSERT OR IGNORE INTO shop_hidden(item_id) VALUES(?)').bind(id).run();
+    else await env.DB.prepare('DELETE FROM shop_hidden WHERE item_id=?').bind(id).run();
+  } else throw new ShopErr('عملية غير معروفة');
+  return json({ ok: true, shop: await view(env, u, { adm: true }) });
+});
+
+// الصورة نفسها: رابط يحمل معرّف البنر ويخزّنه المتصفح
+export async function bannerImg(req, env, url) {
+  const u = await currentUser(req, env);
+  if (!u) return new Response('', { status: 401, headers: { 'cache-control': 'no-store' } });
+  const id = String(url.searchParams.get('id') || '');
+  const r = /^b[0-9a-f]{12}$/.test(id) ? await env.DB.prepare('SELECT d FROM shop_banners WHERE id=?').bind(id).first() : null;
+  if (!r || !r.d) return new Response('', { status: 404, headers: { 'cache-control': 'no-store' } });
+  const bin = atob(r.d), bytes = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
+  return new Response(bytes, { headers: { 'content-type': 'image/jpeg', 'cache-control': 'private, max-age=31536000, immutable', 'x-content-type-options': 'nosniff' } });
+}
 
 // منح عملات لعضو (صاحب الموقع فقط): للتعويض أو المسابقات
 const shopGrant = wrap(async (req, env) => {
@@ -382,5 +458,6 @@ export const SHOP_POST = {
   '/api/shop/gift': shopGift,
   '/api/shop/admin': shopAdmin,
   '/api/shop/grant': shopGrant,
+  '/api/shop/banner': shopBanner,
   '/api/settings/set': settingsSet,
 };
