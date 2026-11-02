@@ -396,7 +396,7 @@ async function modDelMsgs(req, env, action) {
   const args = action === 'delmsg' ? [t.id] : [t.id, now - KEEP];
   const res = await env.DB.batch([
     // del=2 = مسح كامل: لا تُرسَل للمتصفحات أبداً، وتُزال فوراً من شاشات من هم في الغرفة
-    env.DB.prepare("UPDATE messages SET del=2, uname='', text='', rn=NULL, rt=NULL, rid=NULL, pl=NULL, orig=NULL, upd=? WHERE id IN (" + sub + ')').bind(now, ...args),
+    env.DB.prepare("UPDATE messages SET del=2, del_text=text, del_ts=?, uname='', text='', rn=NULL, rt=NULL, rid=NULL, pl=NULL, orig=NULL, upd=? WHERE id IN (" + sub + ')').bind(now, now, ...args),
     env.DB.prepare("DELETE FROM reactions WHERE scope='r' AND mid IN (SELECT id FROM messages WHERE user_id=? AND del=2)").bind(t.id),
     env.DB.prepare('DELETE FROM poll_votes WHERE mid IN (SELECT id FROM messages WHERE user_id=? AND del=2)').bind(t.id),
     env.DB.prepare('DELETE FROM pins WHERE mid IN (SELECT id FROM messages WHERE user_id=? AND del=2)').bind(t.id),
@@ -1525,17 +1525,15 @@ async function msgDelete(req, env) {
   const now = Date.now();
   const st = [];
   if (scope === 'p') {
-    st.push(env.DB.prepare("UPDATE pms SET del=1, text='', rn=NULL, rt=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+    st.push(env.DB.prepare("UPDATE pms SET del=1, del_text=text, del_ts=?, text='', rn=NULL, rt=NULL, orig=NULL, upd=? WHERE id=?").bind(now, now, id));
   } else if (m.user_id !== u.id) {
-    // مشرف يحذف رسالة غيره: تُزال تماماً من شاشات الجميع بلا عبارة «تم الحذف» (del=2 كما في مسح الرسائل)
-    st.push(env.DB.prepare("UPDATE messages SET del=2, uname='', text='', rn=NULL, rt=NULL, rid=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
-    // الردود التي تقتبس الرسالة المحذوفة تفقد الاقتباس
+    st.push(env.DB.prepare("UPDATE messages SET del=2, del_text=text, del_ts=?, uname='', text='', rn=NULL, rt=NULL, rid=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, now, id));
     st.push(env.DB.prepare('UPDATE messages SET rn=NULL, rt=NULL, rid=NULL, upd=? WHERE rid=?').bind(now, id));
     st.push(env.DB.prepare('DELETE FROM poll_votes WHERE mid=?').bind(id));
     st.push(env.DB.prepare('DELETE FROM pins WHERE mid=?').bind(id));
     st.push(logStmt(env, u, 'delmsg', { id: m.user_id, name: m.uname }, 'رسالة واحدة', now));
   } else {
-    st.push(env.DB.prepare("UPDATE messages SET del=1, text='', rn=NULL, rt=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, id));
+    st.push(env.DB.prepare("UPDATE messages SET del=1, del_text=text, del_ts=?, text='', rn=NULL, rt=NULL, pl=NULL, orig=NULL, upd=? WHERE id=?").bind(now, now, id));
     st.push(env.DB.prepare('DELETE FROM poll_votes WHERE mid=?').bind(id));
     st.push(env.DB.prepare('DELETE FROM pins WHERE mid=?').bind(id));
   }
@@ -2075,8 +2073,7 @@ async function spyOpenH(req, env) {
   const us = await spyUsers(env, pr);
   if (!us[pr[0]] || !us[pr[1]]) return json({ error: 'المستخدم غير موجود' }, 404);
   const rs = await env.DB.batch([
-    env.DB.prepare('SELECT id,from_id,text,ts,ed,del,orig,del_from,del_to,exp FROM pms WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?) ORDER BY id DESC LIMIT 300').bind(pr[0], pr[1], pr[1], pr[0]),
-    env.DB.prepare('SELECT id,text,ts FROM spy_notes WHERE a_id=? AND b_id=? ORDER BY id').bind(pr[0], pr[1]),
+    env.DB.prepare('SELECT id,from_id,text,ts,ed,del,orig,del_from,del_to,exp,del_text,del_ts FROM pms WHERE (from_id=? AND to_id=?) OR (from_id=? AND to_id=?) ORDER BY id DESC LIMIT 300').bind(pr[0], pr[1], pr[1], pr[0]),    env.DB.prepare('SELECT id,text,ts FROM spy_notes WHERE a_id=? AND b_id=? ORDER BY id').bind(pr[0], pr[1]),
     env.DB.prepare('SELECT flag FROM spy_meta WHERE a_id=? AND b_id=?').bind(pr[0], pr[1]),
   ]);
   const now = Date.now(), A = us[pr[0]], B = us[pr[1]];
