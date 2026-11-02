@@ -21,7 +21,7 @@ import {
   hex, rand, sha256, hashPass, getCookie, currentUser, startSession,
   tooManyAttempts, noteAttempt,
 } from './src/security.js';
-import { shopState, settingsGet, SHOP_POST } from './src/store.js';
+import { shopState, settingsGet, bannerImg, SHOP_POST } from './src/store.js';
 
 // المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
 export { Room } from './src/room.js';
@@ -1612,7 +1612,7 @@ async function pinClear(req, env) {
 }
 
 // ---------- المرحلة 7أ: الملف الشخصي (الصورة والخلفية والنبذة والحالة) ----------
-const PF_ST = ['متاح', 'مشغول', 'بعيد'];
+const PF_ST = ['متاح', 'مشغول', 'بعيد', 'يشرب قهوة ☕', 'يقرأ 📖', 'يستمع لموسيقى 🎧', 'يدرس ✏️', 'يلعب 🎮', 'يأكل 🍽️', 'يشعر بسعادة 😊'];
 const MAX_BIO = 60;
 const PF_MAX = { img: 90000, cover: 260000 };   // أقصى طول للصورة (base64) بعد التصغير في المتصفح
 const PF_GAP = 2000;                            // أدنى فاصل بين تعديلين للملف
@@ -1672,9 +1672,12 @@ async function profileGet(req, env, url) {
     env.DB.prepare('SELECT COUNT(*) n FROM likes WHERE target_id=?').bind(id),
     env.DB.prepare('SELECT 1 x FROM likes WHERE user_id=? AND target_id=?').bind(u.id, id),
     env.DB.prepare('SELECT COUNT(*) n FROM gifts WHERE to_id=?').bind(id),
+    env.DB.prepare('SELECT data FROM shop_state WHERE user_id=?').bind(id),
   ]);
   const r = rs[0].results[0];
-  return json({ ok: true, id, bio: r ? r.bio : '', st: r ? r.st : 'متاح', iv: r ? r.iv : 0, cv: r ? r.cv : 0, lkn: rs[1].results[0].n, liked: rs[2].results.length ? 1 : 0, gn: rs[3].results[0].n });
+  let bn = '';
+  try { const sd = rs[4].results[0]; const e = sd ? JSON.parse(sd.data).eq : null; const v = e && typeof e.banner === 'string' ? e.banner : ''; if (/^(img:b[0-9a-f]{12}|[a-z]{2,12})$/.test(v)) bn = v; } catch { bn = ''; }
+  return json({ ok: true, id, bio: r ? r.bio : '', st: r ? r.st : 'متاح', iv: r ? r.iv : 0, cv: r ? r.cv : 0, lkn: rs[1].results[0].n, liked: rs[2].results.length ? 1 : 0, gn: rs[3].results[0].n, bn });
 }
 
 // الصورة نفسها: تُجلب برابط يحمل رقم النسخة فيخزّنها المتصفح، ولا تدخل في الاستطلاع الدوري
@@ -2549,7 +2552,7 @@ const baseHandler = {
         '/api/conf/send': confSend, '/api/conf/del': confDel, '/api/conf/block': confBlock, '/api/conf/report': confReport,
         '/api/spy/open': spyOpenH, '/api/spy/flag': spyFlagH, '/api/spy/note': spyNoteH, '/api/spy/review': spyReviewH, '/api/spy/log/clear': spyLogClearH });
       const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
-      const PF_GET = { '/api/room/bans': roomBans, '/api/shop/state': shopState, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
+      const PF_GET = { '/api/room/bans': roomBans, '/api/shop/state': shopState, '/api/shop/bimg': bannerImg, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);
