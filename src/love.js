@@ -6,7 +6,8 @@ import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
 
-export const LOVE_ROOM_PREFIX = 'love:'; // مخصّص لغرفة الحب مستقبلاً: love:<id العلاقة>
+export const LOVE_ROOM_PREFIX = 'love:'; // غرفة الحب: love:<id العلاقة>
+export const isLoveRoom = (room) => typeof room === 'string' && room.startsWith(LOVE_ROOM_PREFIX);
 const PENDING_TTL = 7 * DAY;             // الطلب غير المجاب يسقط بعد 7 أيام
 const MAX_OUT = 5;                       // أقصى عدد طلبات معلّقة يرسلها العضو
 const PREF_DEFAULTS = { auto_accept: 0, full_screen: 0, sound: 1, reduce_motion: 0, paused: 0 };
@@ -71,7 +72,7 @@ async function relStatus(req, env) {
   const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}) } };
   for (const r of rows.results) {
     const item = { id: r.id, partner: { id: r.pid, name: r.pname } };
-    if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at }; }
+    if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at, room: LOVE_ROOM_PREFIX + r.id }; }
     else if (r.user_a === u.id) out.outgoing.push(item);
     else out.incoming.push(item);
   }
