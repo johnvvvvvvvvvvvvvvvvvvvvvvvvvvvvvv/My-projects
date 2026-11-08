@@ -22,7 +22,7 @@ import {
   tooManyAttempts, noteAttempt,
 } from './src/security.js';
 import { shopState, settingsGet, bannerImg, SHOP_POST } from './src/store.js';
-import { REL_POST, REL_GET, loveGuard } from './src/love.js';
+import { REL_POST, REL_GET, loveGuard, isLoveRoom } from './src/love.js';
 
 // المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
 export { Room } from './src/room.js';
@@ -1039,7 +1039,7 @@ async function poll(req, env, url) {
   const room = url.searchParams.get('room') || '';
   const lg = await loveGuard(env, u, room);
   if (lg) return lg;
-  if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
+  if (!ROOMS.includes(room) && !isLoveRoom(room)) return json({ error: 'غرفة غير موجودة' }, 400);
   const after = parseInt(url.searchParams.get('after'), 10) || 0;
   const ut = parseInt(url.searchParams.get('ut'), 10) || 0;
   const an = parseInt(url.searchParams.get('an'), 10) || 0;   // آخر إعلان رآه المتصفح
@@ -1097,7 +1097,7 @@ async function poll(req, env, url) {
 
   const online = (await env.DB.prepare(
     'SELECT u.id,u.name,u.role,u.rank,u.age,u.gender,u.country,u.lang,u.created_at,p.room,rm.room mroom,pf.bio,pf.st,pf.iv,pf.cv FROM presence p JOIN users u ON u.id=p.user_id LEFT JOIN room_mods rm ON rm.user_id=u.id LEFT JOIN profiles pf ON pf.user_id=u.id WHERE p.ts>? ORDER BY p.ts DESC LIMIT 300'
-  ).bind(now - ONLINE_MS).all()).results;
+  ).bind(now - ONLINE_MS).all()).results.map((o) => (isLoveRoom(o.room) && o.room !== room ? { ...o, room: '' } : o));
   // حالة الكتم وسحب الصلاحيات لكل المستخدمين (الأسباب لصاحب العلاقة وللمشرفين فقط)
   const sx = (await env.DB.prepare("SELECT s.user_id id,s.kind k,s.until,s.reason,s.by_id,s.by_name,b.role brole,b.rank brank FROM sanctions s LEFT JOIN users b ON b.id=s.by_id WHERE s.active=1 AND s.kind IN ('mute','revoke','shadow','nopm','slow') AND (s.until IS NULL OR s.until>?) LIMIT 300")
     .bind(now).all()).results.filter((x) => (x.k === 'shadow' ? vlv >= 2 : SELF_VISIBLE.includes(x.k) ? (x.id === u.id || vlv >= 2) : true)).map((x) => {
@@ -1413,7 +1413,7 @@ async function postMsg(req, env) {
   const room = String(b.room || '');
   const lg = await loveGuard(env, u, room);
   if (lg) return lg;
-  if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
+  if (!ROOMS.includes(room) && !isLoveRoom(room)) return json({ error: 'غرفة غير موجودة' }, 400);
   let text = cleanText(b.text);
   if (!text) return json({ error: 'الرسالة فارغة' }, 400);
   if (text.length > MAX_TEXT) return json({ error: 'الرسالة طويلة (الحد ' + MAX_TEXT + ' حرف)' }, 400);
