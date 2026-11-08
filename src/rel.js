@@ -6,7 +6,9 @@ function relDraw() {
   var b = document.getElementById('relbtn');
   if (!b) return;
   var n = REL && REL.incoming ? REL.incoming.length : 0;
-  b.style.display = REL && (REL.active || n) ? '' : 'none'; // يظهر لمن لديه علاقة أو طلب وارد
+  var member = false;
+  try { member = typeof me !== 'undefined' && !!me && me.role !== 'visitor'; } catch (e) {}
+  b.style.display = member ? '' : 'none'; // يظهر لكل عضو (الزائر لا يرتبط)
   b.textContent = '💞' + (n ? ' ' + n : '');
   relRoomSync();
 }
@@ -122,7 +124,7 @@ function relAsk(t) {
   setInterval(function () { if (!document.hidden) relSync(); }, 60000);
   // أول مزامنة هادئة بمجرد دخول المستخدم
   var first = setInterval(function () {
-    try { if (typeof me !== 'undefined' && me) { clearInterval(first); relSync(1); } } catch (e) {}
+    try { if (typeof me !== 'undefined' && me) { clearInterval(first); relDraw(); relSync(1); } } catch (e) {}
   }, 1000);
   window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose; window.relGoRoom = relGoRoom;
 
