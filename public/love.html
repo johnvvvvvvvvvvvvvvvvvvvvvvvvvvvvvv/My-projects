@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>الارتباط</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
+<script src="/ux.js"></script>
+<style>
+:root{--bg:#f4f1ec;--sf:#fff;--tx:#1d2330;--mu:#566070;--ac:#0f766e;--ac2:#fff;--bd:#e2ddd5;--me:#d9f2ee;--dg:#b42318}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151c;--sf:#1a212b;--tx:#e8ecf2;--mu:#98a2b3;--ac:#2dd4bf;--ac2:#06201d;--bd:#2c3644;--me:#12413c}}
+:root[data-theme="dark"]{--bg:#10151c;--sf:#1a212b;--tx:#e8ecf2;--mu:#98a2b3;--ac:#2dd4bf;--ac2:#06201d;--bd:#2c3644;--me:#12413c}
+:root[data-theme="light"],button[data-theme="light"]{--bg:#f4f1ec;--sf:#fff;--tx:#1d2330;--mu:#566070;--ac:#0f766e;--ac2:#fff;--bd:#e2ddd5;--me:#d9f2ee;--m1:#ffffff;--m2:#f5f1ea}
+:root[data-theme="dark"],button[data-theme="dark"]{--bg:#10151c;--sf:#1a212b;--tx:#e8ecf2;--mu:#98a2b3;--ac:#2dd4bf;--ac2:#06201d;--bd:#2c3644;--me:#12413c;--m1:#161c25;--m2:#1d2530}
+:root[data-theme="amoled"],button[data-theme="amoled"]{--bg:#000;--sf:#0b0b0b;--tx:#f2f2f2;--mu:#9a9a9a;--ac:#22d3ee;--ac2:#001417;--bd:#222;--me:#0b3a40;--m1:#0a0a0a;--m2:#141414}
+:root[data-theme="ocean"],button[data-theme="ocean"]{--bg:#0b1b2b;--sf:#12283d;--tx:#e6f1fb;--mu:#8fb0cc;--ac:#38bdf8;--ac2:#04202f;--bd:#1f3d59;--me:#0e4a6b;--m1:#0f2236;--m2:#15304a}
+:root[data-theme="forest"],button[data-theme="forest"]{--bg:#0f1a14;--sf:#17261d;--tx:#e7f3ea;--mu:#96b09f;--ac:#4ade80;--ac2:#052e16;--bd:#27402f;--me:#14532d;--m1:#13221a;--m2:#1a2e22}
+:root[data-theme="sunset"],button[data-theme="sunset"]{--bg:#1e1424;--sf:#2a1b33;--tx:#fbeee6;--mu:#c4a5b5;--ac:#fb923c;--ac2:#2b1305;--bd:#46304f;--me:#6b2d3e;--m1:#25172d;--m2:#311f3b}
+:root[data-theme="sand"],button[data-theme="sand"]{--bg:#efe6d8;--sf:#fbf6ec;--tx:#3b2f22;--mu:#8a7660;--ac:#b45309;--ac2:#fff;--bd:#dccdb4;--me:#f3d9b1;--m1:#fbf6ec;--m2:#f3ead9}
+:root[data-theme="paper"],button[data-theme="paper"]{--bg:#eceff1;--sf:#fafafa;--tx:#263238;--mu:#78909c;--ac:#455a64;--ac2:#fff;--bd:#cfd8dc;--me:#dbe5ea;--m1:#f7f8f9;--m2:#eef1f3}
+:root[data-theme="rose"],button[data-theme="rose"]{--bg:#2a1220;--sf:#3a1a2e;--tx:#ffeaf3;--mu:#d6a3bd;--ac:#f472b6;--ac2:#2b0719;--bd:#5a2a45;--me:#6b2447;--m1:#331528;--m2:#421f35}
+:root[data-theme="emerald"],button[data-theme="emerald"]{--bg:#07231c;--sf:#0d3329;--tx:#e6fff6;--mu:#8fd0b8;--ac:#34d399;--ac2:#022c1f;--bd:#14543f;--me:#0f5a45;--m1:#0a2b22;--m2:#103a2e}
+:root[data-theme="dusk"],button[data-theme="dusk"]{--bg:#1f1a33;--sf:#2b2447;--tx:#fff1e6;--mu:#c9b2b8;--ac:#fb7185;--ac2:#2b0710;--bd:#45386b;--me:#5b2f55;--m1:#261f3f;--m2:#302850}
+*{box-sizing:border-box}
+html,body{height:100%;margin:0}
+body{background:var(--bg);color:var(--tx);font-family:system-ui,"Segoe UI",Tahoma,sans-serif;display:flex;flex-direction:column;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+header{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--bd);background:var(--sf)}
+header b{font-size:17px;color:var(--ac)}
+button{font:inherit;cursor:pointer;border:0;border-radius:10px;padding:9px 14px;background:var(--ac);color:var(--ac2);min-height:40px}
+button.g{background:transparent;color:var(--tx);border:1px solid var(--bd)}
+button.dg{background:transparent;color:var(--dg);border:1px solid var(--dg)}
+button:disabled{opacity:.5;cursor:default}
+header button{min-height:36px;padding:4px 12px}
+.tabs{display:flex;background:var(--sf);border-bottom:1px solid var(--bd)}
+.tabs button{flex:1;background:none;color:var(--mu);border-radius:0;border-bottom:2px solid transparent;font-size:14px}
+.tabs button.on{color:var(--ac);border-bottom-color:var(--ac)}
+.tabs .bd{background:var(--ac);color:var(--ac2);border-radius:999px;padding:0 7px;font-size:12px;margin-inline-start:4px}
+main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12px}
+.card{background:var(--sf);border:1px solid var(--bd);border-radius:14px;padding:14px;display:flex;flex-direction:column;gap:10px}
+.row{display:flex;align-items:center;justify-content:space-between;gap:10px}
+.row .ac{display:flex;gap:8px}
+.mu{color:var(--mu);font-size:13px}
+.hero{align-items:center;text-align:center}
+.hero .box{width:110px;height:110px}
+.hero h2{margin:0;font-size:20px}
+.sw{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)}
+.sw:last-child{border-bottom:0}
+.sw input{width:22px;height:22px;accent-color:var(--ac)}
+#ts{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:8px 14px;z-index:20;display:none;box-shadow:0 6px 24px #0003;max-width:90%}
+</style>
+</head>
+<body>
+<div id="ts"></div>
+<header><b>💞 الارتباط</b><button class="g" id="cl" title="إغلاق">✕</button></header>
+<nav class="tabs">
+  <button data-t="me" class="on">علاقتي</button>
+  <button data-t="rq">الطلبات<span class="bd" id="bq" style="display:none"></span></button>
+  <button data-t="st" id="tst" style="display:none">الإعدادات</button>
+</nav>
+<main id="v"></main>
+<script>
+(function(){
+try{var pf=JSON.parse(localStorage.getItem('chatpf')||'{}');if(pf.th&&pf.th!=='auto')document.documentElement.setAttribute('data-theme',pf.th)}catch(e){}
+
+var $=function(i){return document.getElementById(i)};
+var S=null,tab='me';
+var LABELS=[
+  ['auto_accept','قبول طلبات الارتباط تلقائياً'],
+  ['full_screen','عرض الحركات بملء الشاشة'],
+  ['sound','الأصوات'],
+  ['reduce_motion','تقليل الحركة'],
+  ['paused','إيقاف مؤقت للحركات والإشعارات']
+];
+
+function el(t,c,x){var e=document.createElement(t);if(c)e.className=c;if(x!=null)e.textContent=x;return e}
+function toast(m,k){if(window.UX)UX.toast(m,k||null);else alert(m)}
+function call(path,body){
+  return fetch('/api/'+path,{method:body?'POST':'GET',credentials:'same-origin',headers:body?{'content-type':'application/json'}:{},body:body?JSON.stringify(body):undefined})
+    .then(function(r){return r.json().then(function(j){return{s:r.status,j:j}},function(){return{s:r.status,j:{}}})})
+}
+function act(path,body,okMsg,key){
+  call(path,body).then(function(r){
+    if(r.j&&r.j.ok){if(okMsg)toast(okMsg,key);load()}
+    else toast('⚠️ '+((r.j&&r.j.error)||'تعذر تنفيذ الطلب'),'star');
+  },function(){toast('⚠️ تعذر الاتصال بالخادم','star')});
+}
+
+function load(){
+  return call('rel/status').then(function(r){
+    if(!(r.j&&r.j.ok)){draw(null);return}
+    S=r.j;draw(S);
+  },function(){draw(null)});
+}
+
+function draw(s){
+  var n=s?s.incoming.length:0,bq=$('bq');
+  bq.style.display=n?'':'none';bq.textContent=n;
+  $('tst').style.display=s&&s.active?'':'none';
+  if(tab==='st'&&!(s&&s.active))tab='me';
+  document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('on',b.dataset.t===tab)});
+  var v=$('v');v.textContent='';
+  if(!s){v.appendChild(el('div','mu','تعذر تحميل الحالة. أغلق النافذة وافتحها مجدداً.'));return}
+  if(tab==='me')drawMe(v,s);else if(tab==='rq')drawRq(v,s);else drawSt(v,s);
+}
+
+function drawMe(v,s){
+  if(!s.active){
+    var h=el('div','');v.appendChild(h);
+    UX.empty(h,'hearts','لا ارتباط حالياً. افتح قائمة أي عضو في الشات واختر «💞 طلب ارتباط».');
+    return;
+  }
+  var c=el('div','card hero');
+  var box=el('div','box');c.appendChild(box);
+  c.appendChild(el('h2','',s.active.partner.name));
+  c.appendChild(el('div','mu','مرتبطان منذ '+new Date(s.active.since).toLocaleDateString('ar')));
+  var go=el('button','','💞 غرفة الحب (قريباً)');go.disabled=true;c.appendChild(go);
+  var end=el('button','dg','إنهاء الارتباط');
+  end.onclick=function(){if(confirm('إنهاء الارتباط مع '+s.active.partner.name+'؟'))act('rel/end',{id:s.active.id},'تم إنهاء الارتباط')};
+  c.appendChild(end);
+  v.appendChild(c);
+  UX.play(box,'hearts',{loop:true});
+}
+
+function drawRq(v,s){
+  if(!s.incoming.length&&!s.outgoing.length){
+    var h=el('div','');v.appendChild(h);
+    UX.empty(h,'sparkles','لا توجد طلبات ارتباط.');
+    return;
+  }
+  if(s.incoming.length){
+    v.appendChild(el('div','mu','طلبات واردة'));
+    s.incoming.forEach(function(r){
+      var c=el('div','card'),row=el('div','row');
+      row.appendChild(el('b','',r.partner.name));
+      var a=el('div','ac');
+      var ok=el('button','','قبول');ok.onclick=function(){act('rel/accept',{id:r.id},'💞 أصبحتما مرتبطين','hearts')};
+      var no=el('button','g','رفض');no.onclick=function(){act('rel/decline',{id:r.id},'تم الرفض')};
+      a.appendChild(ok);a.appendChild(no);row.appendChild(a);c.appendChild(row);v.appendChild(c);
+    });
+  }
+  if(s.outgoing.length){
+    v.appendChild(el('div','mu','طلبات أرسلتها'));
+    s.outgoing.forEach(function(r){
+      var c=el('div','card'),row=el('div','row');
+      row.appendChild(el('b','',r.partner.name));
+      var no=el('button','g','إلغاء الطلب');no.onclick=function(){act('rel/decline',{id:r.id},'تم إلغاء الطلب')};
+      row.appendChild(no);c.appendChild(row);v.appendChild(c);
+    });
+  }
+}
+
+function drawSt(v,s){
+  var c=el('div','card');
+  LABELS.forEach(function(p){
+    var row=el('label','sw');row.appendChild(el('span','',p[1]));
+    var cb=document.createElement('input');cb.type='checkbox';cb.checked=!!s.prefs[p[0]];
+    cb.onchange=function(){
+      var val=cb.checked?1:0,o={};o[p[0]]=val;s.prefs[p[0]]=val;
+      call('rel/prefs',o).then(function(r){
+        if(!(r.j&&r.j.ok)){cb.checked=!val;s.prefs[p[0]]=cb.checked?1:0;toast('⚠️ تعذر الحفظ','star')}
+      },function(){cb.checked=!val;toast('⚠️ تعذر الاتصال بالخادم','star')});
+    };
+    row.appendChild(cb);c.appendChild(row);
+  });
+  v.appendChild(c);
+}
+
+document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){tab=b.dataset.t;draw(S)}});
+$('cl').onclick=function(){
+  if(window.parent!==window&&window.parent.relClose)window.parent.relClose();
+  else if(history.length>1)history.back();else location.href='/chat.html';
+};
+load();
+})();
+</script>
+</body>
+</html>
