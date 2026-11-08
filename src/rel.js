@@ -78,4 +78,9 @@ function relAsk(t) {
   if (b) b.onclick = relOpen;
   // احتياط إن لم يتصل WebSocket: مزامنة هادئة كل دقيقة والتبويب ظاهر
   setInterval(function () { if (!document.hidden) relSync(); }, 60000);
+  // أول مزامنة هادئة بمجرد دخول المستخدم
+  var first = setInterval(function () {
+    try { if (typeof me !== 'undefined' && me) { clearInterval(first); relSync(1); } } catch (e) {}
+  }, 1000);
+  window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose;
 })();
