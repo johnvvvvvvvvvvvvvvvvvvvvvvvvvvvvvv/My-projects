@@ -216,7 +216,7 @@ main{grid-template-columns:1fr 260px}
 <button class="g" id="rb"></button><select id="room" style="display:none"></select><span id="who" style="display:none"></span><span class="sp"></span>
 <button class="g" id="mn" title="القائمة"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" style="vertical-align:middle"><path d="M4 6h16M4 12h16M4 18h16"/></svg></button></header>
 <main><section id="chat"><div id="pin"></div><div id="msgs"></div><div id="ty"></div><div id="rp"></div>
-<div id="bar"><button class="g" id="ul" title="المتصلون">👥</button><button class="g" id="at" title="منشن">@</button><textarea id="txt" rows="1" placeholder="اكتب رسالتك..." maxlength="300"></textarea><button class="g" id="relbtn" title="الارتباط" style="display:none">💞</button><button id="send">إرسال</button></div></section>
+<div id="bar"><button class="g" id="ul" title="المتصلون">👥</button><button class="g" id="at" title="منشن">@</button><textarea id="txt" rows="1" placeholder="اكتب رسالتك..." maxlength="300"></textarea><button id="send">إرسال</button></div></section>
 <aside id="users"></aside></main></div>
  
 <div id="menu"></div><div id="ann"></div><button id="dn">⬇</button><div id="dl"></div><div id="wh"></div><div id="mp"></div><div id="ts"></div><div id="ov"></div><div id="side"></div><div id="pf"></div>
@@ -436,7 +436,7 @@ function item(l,f){var b=el('button','',l);b.onclick=function(){m.style.display=
 item('عرض الملف الشخصي',function(){profile(t)});item('رسالة خاصة',function(){openPM(t)});
 item(ign[t.id]?'إلغاء التجاهل':'تجاهل',function(){ign[t.id]=!ign[t.id];draw()});
 item('تبليغ',function(){ask('تبليغ عن '+t.name,[{k:'r',l:'سبب البلاغ'}],function(o){srvReport(t,o.r,'room'),report('بلاغ من '+me.name+' ضد '+t.name+': '+o.r);alert('تم إرسال البلاغ للإدارة')})});
-if(fr[t.id])item('إزالة الصداقة',function(){rmFr(t.id)});else if(!sent[t.id]&&lv(me)>=1)item('إضافة صديق',function(){addFr(t)});if(lv(me)>=1&&t.role!=='visitor'&&window.relAsk)item('💞 طلب ارتباط',function(){relAsk(t)});
+if(fr[t.id])item('إزالة الصداقة',function(){rmFr(t.id)});else if(!sent[t.id]&&lv(me)>=1)item('إضافة صديق',function(){addFr(t)});
 var n0=m.children.length;
 if(can(me,t,2)&&!isMuted(t))item('كتم',function(){scmd('كتم',t,'mute',function(d){t.muted=true;t.mu=d?Date.now()+d*6e4:0})});
 if(can(me,t,2)&&isMuted(t))item('فك الكتم',function(){soc('mod/unmute',{target:t.id},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر فك الكتم'));return}t.muted=false;t.mu=0;var tx='✅ تم فك كتم '+t.name+' بواسطة '+me.name;addLog(tx);post(t.room||room,0,tx,1);drawUsers()})});
@@ -582,7 +582,7 @@ function linked(t){}
 menu=function(t,e){var m=$('menu');m.textContent='';if(t.id===me.id){m.style.display='none';profile(t);return}
 function item(l,f){var b=el('button','',l);b.onclick=function(){m.style.display='none';f()};m.appendChild(b)}
 item('👤 عرض الملف',function(){profile(t)});item('✉️ خاص',function(){openPM(t)});
-if(fr[t.id])item('💔 إزالة الصداقة',function(){rmFr(t.id)});else if(!sent[t.id]&&lv(me)>=1)item('👥 إضافة صديق',function(){addFr(t)});if(lv(me)>=1&&t.role!=='visitor'&&window.relAsk)item('💞 طلب ارتباط',function(){relAsk(t)});
+if(fr[t.id])item('💔 إزالة الصداقة',function(){rmFr(t.id)});else if(!sent[t.id]&&lv(me)>=1)item('👥 إضافة صديق',function(){addFr(t)});
 item(ign[t.id]?'👀 إلغاء التجاهل':'🙈 تجاهل',function(){ign[t.id]=!ign[t.id];draw()});
 item('🚩 تبليغ',function(){ask('🚩 تبليغ عن '+t.name,[{k:'r',l:'سبب البلاغ',ch:[['صورة مسيئة','صورة مسيئة'],['نبذة مسيئة','نبذة مسيئة'],['انتحال','انتحال'],['حساب وهمي','حساب وهمي'],['سبّ وإزعاج','سبّ وإزعاج']]}],function(o){t.repn=(t.repn||0)+1;srvReport(t,o.r,'room'),report('بلاغ من '+me.name+' ضد '+t.name+': '+o.r);toast('🚩 تم إرسال البلاغ للإدارة')})});
 if(tier(me)>=1&&can(me,t,0)){m.appendChild(el('small','mu','🛠️ الأوامر'));ACT.filter(function(a){return allowed(a)&&!a.v&&(!a.ok||a.ok(t))}).slice(0,4).forEach(function(a){item(a.e+' '+a.l,function(){doAct(a,t)})});item('🛠️ مزيد...',function(){targetView(t)});
@@ -741,7 +741,7 @@ if(tab==='fr'){var l=u===me?users.filter(function(o){return fr[o.id]}):[];if(u!=
 else{var a=['📅 انضم '+fdate(u.join)+' ('+ago(u.join)+')','💬 '+num(tmsgs(u))+' رسالة','🎁 '+gcount(u)+' هدايا','🏅 الرتبة: '+badge(u)];if(tmsgs(u)>=500)a.push('🏆 إنجاز: 500 رسالة');if(Date.now()-u.join>365*864e5)a.push('🎂 إنجاز: سنة في الموقع');if(u.ver)a.push('⭐ حساب موثّق');a.forEach(function(x){tb.appendChild(el('div','nw',x))});tb.appendChild(el('small','mu','لا يظهر هنا محتوى الرسائل.'))}}}
 if(u===me&&SH.eq.title){var ti=el('div','',SH.eq.title);ti.style.cssText='text-align:center;font-weight:700;color:var(--ac)';var pi=c.querySelector('.pi');if(pi)pi.insertBefore(ti,pi.children[2]||null)}
 var wc=c.querySelector('.wc');if(!wc||u===me)return;var more=wc.lastChild,acts=[];function wb(ic,tt,f){acts.push([ic,tt,f])}
-wb(fr[u.id]?'💔':'👥',fr[u.id]?'إزالة الصداقة':'إضافة صديق',function(){if(fr[u.id]){rmFr(u.id)}else addFr(u);profile(u,tab)});if(lv(me)>=1&&u.role!=='visitor'&&window.relAsk)wb('💞','طلب ارتباط',function(){relAsk(u)});
+wb(fr[u.id]?'💔':'👥',fr[u.id]?'إزالة الصداقة':'إضافة صديق',function(){if(fr[u.id]){rmFr(u.id)}else addFr(u);profile(u,tab)});if(window.relMenu)relMenu(u,function(l,f){var p=l.indexOf(' ');wb(l.slice(0,p),l.slice(p+1),f)});
 wb(u.liked?'💔':'❤️',u.liked?'إلغاء الإعجاب':'إعجاب',function(){toggleLike(u,tab)});
 wb('🎁','هدية',function(){profile(u,'gifts')});wb('🪙','إهداء عملات',function(){giftCoins(u)});
 wb(ign[u.id]?'👀':'🙈',ign[u.id]?'إلغاء التجاهل':'تجاهل',function(){ign[u.id]=!ign[u.id];draw();profile(u,tab)});
@@ -1854,4 +1854,3 @@ var UX={
 <script src="/rel.js"></script>
 </body>
 </html>
-
