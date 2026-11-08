@@ -1,4 +1,5 @@
 import { DAY, KEEP } from './config.js';
+import { loveTables, LOVE_WANT } from './love.js';
 
 let schemaP = null;
 function ensureDatabase(env, seedWatchWords) {
@@ -70,6 +71,7 @@ function ensureDatabase(env, seedWatchWords) {
       env.DB.prepare('CREATE TABLE IF NOT EXISTS room_state(room TEXT PRIMARY KEY, cleared_at INTEGER NOT NULL DEFAULT 0, cleared_by INTEGER, topic TEXT NOT NULL DEFAULT \'\', topic_by INTEGER, members_only INTEGER NOT NULL DEFAULT 0, no_links INTEGER NOT NULL DEFAULT 0, upd INTEGER NOT NULL DEFAULT 0)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS shop_sales(item_id TEXT PRIMARY KEY, n INTEGER NOT NULL DEFAULT 0)'),
       env.DB.prepare('CREATE TABLE IF NOT EXISTS user_settings(user_id INTEGER PRIMARY KEY, st TEXT, pf TEXT, upd INTEGER NOT NULL DEFAULT 0)'),
+      ...loveTables(env),
     ]).then(() => migrate(env)).then(() => verifySchema(env)).then(() => seedWatchWords(env)).catch((e) => { schemaP = null; throw e; });
   }
   return schemaP;
@@ -183,6 +185,7 @@ const WANT = {
   room_state: ['room', 'cleared_at', 'cleared_by', 'topic', 'topic_by', 'members_only', 'no_links', 'upd'],
   shop_sales: ['item_id', 'n'],
   user_settings: ['user_id', 'st', 'pf', 'upd'],
+  ...LOVE_WANT,
 };
 async function verifySchema(env) {
   for (const t of Object.keys(WANT)) {
@@ -203,6 +206,7 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM pms WHERE ts<? OR (exp IS NOT NULL AND exp<?)').bind(now - KEEP, now),
     env.DB.prepare('DELETE FROM notifications WHERE ts<?').bind(now - KEEP),
     env.DB.prepare('DELETE FROM friend_requests WHERE ts<?').bind(now - KEEP),
+    env.DB.prepare("DELETE FROM relationships WHERE status IN ('declined','ended') AND ended_at<?").bind(now - 3 * KEEP),
     env.DB.prepare('DELETE FROM pms WHERE del_from=1 AND del_to=1'),
     env.DB.prepare("DELETE FROM reactions WHERE (scope='r' AND mid NOT IN (SELECT id FROM messages)) OR (scope='p' AND mid NOT IN (SELECT id FROM pms))"),
     env.DB.prepare('DELETE FROM poll_votes WHERE mid NOT IN (SELECT id FROM messages)'),
