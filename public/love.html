@@ -113,7 +113,7 @@ function drawMe(v,s){
   var box=el('div','box');c.appendChild(box);
   c.appendChild(el('h2','',s.active.partner.name));
   c.appendChild(el('div','mu','مرتبطان منذ '+new Date(s.active.since).toLocaleDateString('ar')));
-  var go=el('button','','💞 غرفة الحب (قريباً)');go.disabled=true;c.appendChild(go);
+  var go=el('button','','💞 غرفة الحب');go.onclick=function(){if(window.parent!==window&&window.parent.relGoRoom)window.parent.relGoRoom();else location.href='/chat.html'};c.appendChild(go);
   var end=el('button','dg','إنهاء الارتباط');
   end.onclick=function(){if(confirm('إنهاء الارتباط مع '+s.active.partner.name+'؟'))act('rel/end',{id:s.active.id},'تم إنهاء الارتباط')};
   c.appendChild(end);
