@@ -22,6 +22,7 @@ import {
   tooManyAttempts, noteAttempt,
 } from './src/security.js';
 import { shopState, settingsGet, bannerImg, SHOP_POST } from './src/store.js';
+import { REL_POST, REL_GET, loveGuard } from './src/love.js';
 
 // المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
 export { Room } from './src/room.js';
@@ -1036,6 +1037,8 @@ async function poll(req, env, url) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
   const room = url.searchParams.get('room') || '';
+  const lg = await loveGuard(env, u, room);
+  if (lg) return lg;
   if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
   const after = parseInt(url.searchParams.get('after'), 10) || 0;
   const ut = parseInt(url.searchParams.get('ut'), 10) || 0;
@@ -1408,6 +1411,8 @@ async function postMsg(req, env) {
   const b = await readBody(req);
   if (!b) return json({ error: 'طلب غير صالح' }, 400);
   const room = String(b.room || '');
+  const lg = await loveGuard(env, u, room);
+  if (lg) return lg;
   if (!ROOMS.includes(room)) return json({ error: 'غرفة غير موجودة' }, 400);
   let text = cleanText(b.text);
   if (!text) return json({ error: 'الرسالة فارغة' }, 400);
@@ -2551,8 +2556,10 @@ const baseHandler = {
         '/api/profile/set': profileSet, '/api/mod/delimg': modDelImg, '/api/mod/ipban': modIpBan, '/api/mod/unipban': modIpLift, '/api/mod/propose': modPropose, '/api/mod/prop/review': modPropReview, '/api/mod/appeal/review': modAppealReview, '/api/like': likeSet, '/api/gift/send': giftSend, '/api/gift/delete': giftDelete, '/api/name/change': nameChange, '/api/visits/prefs': visitsPrefs, '/api/announce': announceSend, '/api/news/post': newsPost, '/api/news/del': newsDel,
         '/api/conf/send': confSend, '/api/conf/del': confDel, '/api/conf/block': confBlock, '/api/conf/report': confReport,
         '/api/spy/open': spyOpenH, '/api/spy/flag': spyFlagH, '/api/spy/note': spyNoteH, '/api/spy/review': spyReviewH, '/api/spy/log/clear': spyLogClearH });
+      Object.assign(SOC_POST, REL_POST);
       const MOD_GET = { '/api/mod/reports': modReports, '/api/mod/log': modLogList, '/api/mod/sanctions': modSanctions, '/api/mod/history': modHistory, '/api/mod/stats': modStats, '/api/mod/props': modProps, '/api/mod/appeals': modAppeals, '/api/mod/linked': modLinked };
       const PF_GET = { '/api/room/bans': roomBans, '/api/shop/state': shopState, '/api/shop/bimg': bannerImg, '/api/settings': settingsGet, '/api/profile': profileGet, '/api/img': profileImg, '/api/gifts': giftList, '/api/name/status': nameStatus, '/api/visits': visitsGet, '/api/news': newsList, '/api/badges': badgeGet, '/api/conf': confList, '/api/spy/list': spyListH, '/api/spy/log': spyLogH };
+      Object.assign(PF_GET, REL_GET);
       if (['/api/poll', '/api/post', '/api/pm/send', '/api/pm/read'].includes(url.pathname) || SOC_POST[url.pathname] || (req.method === 'GET' && (MOD_GET[url.pathname] || PF_GET[url.pathname]))) {
         await ensureSchema(env);
         if (req.method === 'GET' && PF_GET[url.pathname]) return await PF_GET[url.pathname](req, env, url);
@@ -2577,7 +2584,7 @@ const baseHandler = {
 
 // ---------- المرحلة 2: WebSocket تجريبي (إشارة «تحديث الآن» فقط، بلا أي بيانات) ----------
 // الرسائل نفسها تبقى تصل عبر /api/poll لتبقى كل الفلاتر (التجاهل، الكتم الخفي، الحظر) في الخادم.
-const POKE_PATH = /^\/api\/(post|msg\/|pin\/|room\/|mod\/|pm\/send|announce)/;
+const POKE_PATH = /^\/api\/(post|msg\/|pin\/|room\/|mod\/|pm\/send|announce|rel\/)/;
 
 async function wsConnect(req, env, url) {
   if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'مطلوب اتصال WebSocket' }, 426);
@@ -2625,6 +2632,23 @@ async function pokeRooms(env, rq, rs, path) {
       if (!to) return;
       const p = await env.DB.prepare('SELECT room FROM presence WHERE user_id=? AND ts>?').bind(to, Date.now() - ONLINE_MS).first();
       if (p && WS_ROOMS.includes(p.room)) await env.ROOM.get(env.ROOM.idFromName(p.room)).poke('p', to);
+      return;
+    }
+    // المرحلة 2 (العلاقات): إشارة {"t":"r"} موجّهة لطرفي العلاقة فقط (بلا أي بيانات)؛ الحالة تُقرأ من /api/rel/status
+    if (path.startsWith('/api/rel/')) {
+      if (path === '/api/rel/prefs') return;
+      const ids = new Set();
+      const to = b ? parseInt(b.to, 10) : 0;
+      if (to) ids.add(to);
+      const rid = b ? parseInt(b.id, 10) : 0;
+      if (rid) {
+        const r = await env.DB.prepare('SELECT user_a,user_b FROM relationships WHERE id=?').bind(rid).first();
+        if (r) { ids.add(r.user_a); ids.add(r.user_b); }
+      }
+      await Promise.all([...ids].map(async (uid) => {
+        const p = await env.DB.prepare('SELECT room FROM presence WHERE user_id=? AND ts>?').bind(uid, Date.now() - ONLINE_MS).first();
+        if (p && WS_ROOMS.includes(p.room)) await env.ROOM.get(env.ROOM.idFromName(p.room)).poke('{"t":"r"}', uid);
+      }));
       return;
     }
     let rooms = WS_ROOMS;
