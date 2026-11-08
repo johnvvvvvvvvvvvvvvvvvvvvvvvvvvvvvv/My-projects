@@ -3,13 +3,8 @@ var REL = null;
 var REL_TIMER = 0;
 
 function relDraw() {
-  var b = document.getElementById('relbtn');
-  if (!b) return;
-  var n = REL && REL.incoming ? REL.incoming.length : 0;
-  var member = false;
-  try { member = typeof me !== 'undefined' && !!me && me.role !== 'visitor'; } catch (e) {}
-  b.style.display = member ? '' : 'none'; // يظهر لكل عضو (الزائر لا يرتبط)
-  b.textContent = '💞' + (n ? ' ' + n : '');
+  var b = document.getElementById('relbtn'); // الزر بجانب صندوق الكتابة مخفي دائماً (الدخول من البروفايل)
+  if (b) b.style.display = 'none';
   relRoomSync();
 }
 
@@ -52,6 +47,39 @@ function relGoRoom() {
   relRoomSync();
   s.value = REL.active.room;
   if (s.onchange) s.onchange();
+}
+
+// أزرار الارتباط داخل بروفايل العضو: تتغيّر حسب الحالة (مثل الصداقة)
+function relDo(path, id, okMsg) {
+  api('rel/' + path, { id: id }).then(function (r) {
+    var o = r.j || {};
+    if (o.ok) { relToast(okMsg); relSync(1); }
+    else relToast('⚠️ ' + (o.error || 'تعذر التنفيذ'));
+  }, function () { relToast('⚠️ تعذر الاتصال بالخادم'); });
+}
+
+function relMenu(t, add) {
+  try {
+    if (typeof me === 'undefined' || !me || me.role === 'visitor' || !t || t.id === me.id || t.role === 'visitor') return;
+    var R = REL || {}, a = R.active;
+    if (a) { // أنا مرتبط: الأزرار تظهر في بروفايل شريكي فقط
+      if (a.partner.id !== t.id) return;
+      add('💔 إنهاء الارتباط', function () { if (confirm('إنهاء الارتباط مع ' + t.name + '؟')) relDo('end', a.id, 'تم إنهاء الارتباط'); });
+      add('💞 غرفة الحب', function () { relGoRoom(); });
+      add('📋 نافذة الارتباط', function () { relOpen(); });
+      return;
+    }
+    var pick = function (l) { return (l || []).filter(function (x) { return x.partner.id === t.id; })[0]; };
+    var inc = pick(R.incoming), out = pick(R.outgoing);
+    if (inc) {
+      add('💞 قبول طلب الارتباط', function () { relDo('accept', inc.id, '💞 أصبحتما مرتبطين'); });
+      add('✖️ رفض طلب الارتباط', function () { relDo('decline', inc.id, 'تم الرفض'); });
+    } else if (out) {
+      add('⏳ إلغاء طلب الارتباط', function () { relDo('decline', out.id, 'تم إلغاء الطلب'); });
+    } else {
+      add('💞 طلب ارتباط', function () { relAsk(t); });
+    }
+  } catch (e) {}
 }
 
 function relToast(msg, key) {
@@ -126,7 +154,7 @@ function relAsk(t) {
   var first = setInterval(function () {
     try { if (typeof me !== 'undefined' && me) { clearInterval(first); relDraw(); relSync(1); } } catch (e) {}
   }, 1000);
-  window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose; window.relGoRoom = relGoRoom;
+  window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose; window.relGoRoom = relGoRoom; window.relMenu = relMenu;
 
   // ---- غرفة الحب: الشكل والتنقل ----
   var st = document.createElement('style');
