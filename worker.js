@@ -2584,7 +2584,7 @@ const baseHandler = {
 
 // ---------- المرحلة 2: WebSocket تجريبي (إشارة «تحديث الآن» فقط، بلا أي بيانات) ----------
 // الرسائل نفسها تبقى تصل عبر /api/poll لتبقى كل الفلاتر (التجاهل، الكتم الخفي، الحظر) في الخادم.
-const POKE_PATH = /^\/api\/(post|msg\/|pin\/|room\/|mod\/|pm\/send|announce|rel\/)/;
+const POKE_PATH = /^\/api\/(post|msg\/|pin\/|room\/|mod\/|pm\/send|announce|rel\/|gesture\/send)/;
 
 async function wsConnect(req, env, url) {
   if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'مطلوب اتصال WebSocket' }, 426);
@@ -2634,6 +2634,15 @@ async function pokeRooms(env, rq, rs, path) {
       if (p && WS_ROOMS.includes(p.room)) await env.ROOM.get(env.ROOM.idFromName(p.room)).poke('p', to);
       return;
     }
+    // المرحلة 4 (الحركات): إشارة {"t":"g"} للمستلم وحده؛ الحركة نفسها تُقرأ من /api/gesture/pending
+    if (path === '/api/gesture/send') {
+      let to = 0;
+      try { to = rs ? parseInt((await rs.json()).to, 10) : 0; } catch { /* بلا رد */ }
+      if (!to) return;
+      const p = await env.DB.prepare('SELECT room FROM presence WHERE user_id=? AND ts>?').bind(to, Date.now() - ONLINE_MS).first();
+      if (p && WS_ROOMS.includes(p.room)) await env.ROOM.get(env.ROOM.idFromName(p.room)).poke('{"t":"g"}', to);
+      return;
+    }
     // المرحلة 2 (العلاقات): إشارة {"t":"r"} موجّهة لطرفي العلاقة فقط (بلا أي بيانات)؛ الحالة تُقرأ من /api/rel/status
     if (path.startsWith('/api/rel/')) {
       if (path === '/api/rel/prefs') return;
@@ -2675,7 +2684,7 @@ export default {
     }
     const pk = req.method === 'POST' && WS_ROOMS.length && env.ROOM && POKE_PATH.test(url.pathname) ? req.clone() : null;
     const res = await baseHandler.fetch(req, env);
-    if (pk && res.status === 200) ctx.waitUntil(pokeRooms(env, pk, url.pathname === '/api/post' ? res.clone() : null, url.pathname));
+    if (pk && res.status === 200) ctx.waitUntil(pokeRooms(env, pk, url.pathname === '/api/post' || url.pathname === '/api/gesture/send' ? res.clone() : null, url.pathname));
     return res;
   },
 };
