@@ -210,6 +210,7 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM pms WHERE del_from=1 AND del_to=1'),
     env.DB.prepare('DELETE FROM rel_memories WHERE rel_id NOT IN (SELECT id FROM relationships)'),
     env.DB.prepare('DELETE FROM date_msgs WHERE ts<?').bind(now - DAY),
+    env.DB.prepare('DELETE FROM rel_reports WHERE ts<?').bind(now - 3 * KEEP),
     env.DB.prepare('DELETE FROM date_msgs WHERE date_id NOT IN (SELECT id FROM rel_dates)'),
     env.DB.prepare('DELETE FROM rel_dates WHERE rel_id NOT IN (SELECT id FROM relationships)'),
     env.DB.prepare("DELETE FROM reactions WHERE (scope='r' AND mid NOT IN (SELECT id FROM messages)) OR (scope='p' AND mid NOT IN (SELECT id FROM pms))"),

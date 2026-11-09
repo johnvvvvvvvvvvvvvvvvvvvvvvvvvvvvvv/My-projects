@@ -8,6 +8,7 @@ import { DAY } from './config.js';
 import { gestureTables, GEST_WANT, GEST_POST, GEST_GET } from './gestures.js';
 import { memTables, MEM_WANT, MEM_POST, MEM_GET } from './memories.js';
 import { dateTables, DATE_WANT, DATE_POST, DATE_GET } from './dates.js';
+import { lrTables, LR_WANT, LR_POST, LR_GET } from './lovereport.js';
 
 export const LOVE_ROOM_PREFIX = 'love:'; // غرفة الحب: love:<id العلاقة>
 export const isLoveRoom = (room) => typeof room === 'string' && room.startsWith(LOVE_ROOM_PREFIX);
@@ -26,6 +27,7 @@ export function loveTables(env) {
     ...gestureTables(env),
     ...memTables(env),
     ...dateTables(env),
+    ...lrTables(env),
   ];
 }
 
@@ -35,6 +37,7 @@ export const LOVE_WANT = {
   ...GEST_WANT,
   ...MEM_WANT,
   ...DATE_WANT,
+  ...LR_WANT,
 };
 
 // ---------- أدوات داخلية ----------
@@ -218,10 +221,11 @@ export const REL_POST = {
   ...GEST_POST,
   ...MEM_POST,
   ...DATE_POST,
+  ...LR_POST,
   '/api/rel/request': relRequest,
   '/api/rel/accept': relAccept,
   '/api/rel/decline': relDecline,
   '/api/rel/end': relEnd,
   '/api/rel/prefs': relPrefs,
 };
-export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET, ...MEM_GET, ...DATE_GET };
+export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET, ...MEM_GET, ...DATE_GET, ...LR_GET };
