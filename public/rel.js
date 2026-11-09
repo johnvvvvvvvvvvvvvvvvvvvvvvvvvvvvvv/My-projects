@@ -87,10 +87,13 @@ function relToast(msg, key) {
   else if (typeof toast === 'function') toast(msg);
 }
 
+// الإيماءات الجديدة (emotes.js): تتجاهل بصمت إن لم يكن المحرك محمّلاً
+function relEmo(ev) { try { if (window.EMO) EMO.fire(ev); } catch (e) {} }
+
 function relNotify(p, n) {
-  if (!p.active && n.active) relToast('💞 أصبحتما مرتبطين مع ' + n.active.partner.name, 'hearts');
+  if (!p.active && n.active) { relToast('💞 أصبحتما مرتبطين مع ' + n.active.partner.name, 'hearts'); relEmo('relationship_started'); }
   else if (p.active && !n.active) relToast('انتهى الارتباط');
-  else if (n.incoming.length > p.incoming.length) relToast('💞 وصلك طلب ارتباط من ' + n.incoming[0].partner.name, 'heart-face');
+  else if (n.incoming.length > p.incoming.length) { relToast('💞 وصلك طلب ارتباط من ' + n.incoming[0].partner.name, 'heart-face'); relEmo('request_received'); }
 }
 
 // quiet=1: بلا إشعارات انتقال (التحميل الأول، أو بعد إجراء قام به المستخدم نفسه)
@@ -172,6 +175,7 @@ function relAsk(t) {
         var rb = document.getElementById('rb');
         if (rb) rb.textContent = '💞 غرفة الحب ▾';
         try { if (NET && NET.sys) NET.sys = '💞 دخلت غرفة الحب'; } catch (e) {}
+        relEmo('enter_love_room');
       }
       return out;
     };
