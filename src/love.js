@@ -6,6 +6,7 @@ import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
 import { gestureTables, GEST_WANT, GEST_POST, GEST_GET } from './gestures.js';
+import { memTables, MEM_WANT, MEM_POST, MEM_GET } from './memories.js';
 
 export const LOVE_ROOM_PREFIX = 'love:'; // غرفة الحب: love:<id العلاقة>
 export const isLoveRoom = (room) => typeof room === 'string' && room.startsWith(LOVE_ROOM_PREFIX);
@@ -22,6 +23,7 @@ export function loveTables(env) {
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_rel_b ON relationships(user_b,status)'),
     env.DB.prepare('CREATE TABLE IF NOT EXISTS rel_prefs(user_id INTEGER PRIMARY KEY, auto_accept INTEGER NOT NULL DEFAULT 0, full_screen INTEGER NOT NULL DEFAULT 1, sound INTEGER NOT NULL DEFAULT 1, reduce_motion INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0)'),
     ...gestureTables(env),
+    ...memTables(env),
   ];
 }
 
@@ -29,6 +31,7 @@ export const LOVE_WANT = {
   relationships: ['id', 'user_a', 'user_b', 'status', 'created_at', 'started_at', 'ended_at', 'ended_by'],
   rel_prefs: ['user_id', 'auto_accept', 'full_screen', 'sound', 'reduce_motion', 'paused'],
   ...GEST_WANT,
+  ...MEM_WANT,
 };
 
 // ---------- أدوات داخلية ----------
@@ -210,10 +213,11 @@ export async function loveGuard(env, u, room) {
 
 export const REL_POST = {
   ...GEST_POST,
+  ...MEM_POST,
   '/api/rel/request': relRequest,
   '/api/rel/accept': relAccept,
   '/api/rel/decline': relDecline,
   '/api/rel/end': relEnd,
   '/api/rel/prefs': relPrefs,
 };
-export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET };
+export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET, ...MEM_GET };
