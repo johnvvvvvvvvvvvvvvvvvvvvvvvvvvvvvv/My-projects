@@ -1,0 +1,62 @@
+{
+  "v": 1,
+  "packs": [
+    {
+      "id": "romance1",
+      "name": "حزمة الرومانسية 1",
+      "credit": "IconScout",
+      "items": [
+        { "id": "chat-bubble",    "file": "romance/chat-bubble.webm",    "emoji": "💬", "label": "فقاعتا حوار" },
+        { "id": "love-card",      "file": "romance/love-card.webm",      "emoji": "💌", "label": "بطاقة حب" },
+        { "id": "heart-reminder", "file": "romance/heart-reminder.webm", "emoji": "❤️", "label": "قلب نابض" },
+        { "id": "eternal-love",   "file": "romance/eternal-love.webm",   "emoji": "♾️", "label": "حب أبدي" },
+        { "id": "rings",          "file": "romance/rings.webm",          "emoji": "💍", "label": "خاتمان" },
+        { "id": "ring-box",       "file": "romance/ring-box.webm",       "emoji": "🎁", "label": "علبة خاتم" },
+        { "id": "headphones",     "file": "romance/headphones.webm",     "emoji": "🎧", "label": "أغنية رومانسية" },
+        { "id": "healing",        "file": "romance/healing.webm",        "emoji": "💧", "label": "قطرتان" },
+        { "id": "target",         "file": "romance/target.webm",         "emoji": "🎯", "label": "هدف" },
+        { "id": "bed",            "file": "romance/bed.webm",            "emoji": "🛏️", "label": "سرير" },
+        { "id": "heart-scalpel",  "file": "romance/heart-scalpel.webm",  "emoji": "💔", "label": "قلب مجروح" },
+        { "id": "cupid-gun",      "file": "romance/cupid-gun.webm",      "emoji": "💘", "label": "سهم كيوبيد" }
+      ]
+    }
+  ],
+  "triggers": [
+    {
+      "id": "partner_message",
+      "event": "partner_message",
+      "label": "عندما يرسل لي شريكي رسالة في غرفة الحب",
+      "items": ["chat-bubble", "love-card", "heart-reminder"],
+      "where": "corner",
+      "cooldown": 20,
+      "default": true
+    },
+    {
+      "id": "enter_love_room",
+      "event": "enter_love_room",
+      "label": "عندما أدخل غرفة الحب",
+      "items": ["heart-reminder", "eternal-love"],
+      "where": "corner",
+      "cooldown": 60,
+      "default": true
+    },
+    {
+      "id": "request_received",
+      "event": "request_received",
+      "label": "عندما يصلني طلب ارتباط",
+      "items": ["ring-box", "love-card"],
+      "where": "center",
+      "cooldown": 0,
+      "default": true
+    },
+    {
+      "id": "relationship_started",
+      "event": "relationship_started",
+      "label": "عندما يبدأ الارتباط بيننا",
+      "items": ["eternal-love", "rings"],
+      "where": "center",
+      "cooldown": 0,
+      "default": true
+    }
+  ]
+}
