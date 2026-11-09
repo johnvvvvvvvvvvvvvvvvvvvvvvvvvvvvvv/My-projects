@@ -1219,7 +1219,7 @@ try{w=new WebSocket((location.protocol==='https:'?'wss://':'ws://')+location.hos
 WSC.ws=w;WSC.room=room;WSC.seen=Date.now();
 w.onopen=function(){if(WSC.ws!==w)return;WSC.ok=1;WSC.n=0;WSC.seen=Date.now();
 WSC.pi=setInterval(function(){try{w.send('ping')}catch(e){}},25000);pollNow()};
-w.onmessage=function(ev){WSC.seen=Date.now();var d=ev.data;if(d==='p')wsPoke();else if(typeof d==='string'&&d.charAt(0)==='{'){try{var j=JSON.parse(d);if(j&&j.t==='m')wsMsg(j.r);else if(j&&j.t==='y')wsTyp(j);else if(j&&j.t==='r'&&window.relOnSignal)relOnSignal()}catch(e){}}};
+w.onmessage=function(ev){WSC.seen=Date.now();var d=ev.data;if(d==='p')wsPoke();else if(typeof d==='string'&&d.charAt(0)==='{'){try{var j=JSON.parse(d);if(j&&j.t==='m')wsMsg(j.r);else if(j&&j.t==='y')wsTyp(j);else if(j&&j.t==='r'&&window.relOnSignal)relOnSignal();else if(j&&j.t==='g'&&window.gstOnSignal)gstOnSignal()}catch(e){}}};
 w.onclose=function(){if(WSC.ws===w)wsDrop(true)};
 w.onerror=function(){if(WSC.ws===w)wsDrop(true)}}
 setInterval(function(){if(!me||!NET.on||!window.WebSocket)return;
@@ -1852,5 +1852,6 @@ var UX={
 };
 </script>
 <script src="/rel.js"></script>
+<script src="/gestures.js"></script>
 </body>
 </html>
