@@ -1160,7 +1160,7 @@ var u=r.user_id===me.id?me:mkUser({id:r.user_id,name:r.uname,role:r.role,rank:r.
 var ex={sid:r.id,ts:r.ts,old:old?1:0,rx:r.rx||{}};if(r.rt)ex.q={n:r.rn,t:r.rt,id:r.rid};if(r.ed)ex.ed=1;if(r.o)ex.o=r.o;if(r.poll)ex.poll=r.poll;
 if(r.kind==='sys'){post(room,0,r.text,1,ex);return}
 if(r.del){ex.del=1;ex.rx={};post(room,u,GONE,0,ex);return}
-post(room,u,r.text,0,ex)})}
+post(room,u,r.text,0,ex);try{if(!old&&typeof relIsLove==='function'&&relIsLove(room)&&REL&&REL.active&&String(r.user_id)===String(REL.active.partner.id)&&window.EMO)EMO.fire('partner_message')}catch(e){}})}
 var GONE='🚫 تم حذف الرسالة';
 function setSt(m,r){m.rx=r.rx||{};if(r.del){m.t=GONE;m.del=1;m.q=null;m.poll=null;m.rx={}}else{if(r.text!=null&&r.text!==m.t)m.t=r.text;if(r.ed)m.ed=1;if(r.o)m.o=r.o;if(r.poll)m.poll=r.poll}}
 function applyUpd(rows,rm){if(!rows||!rows.length)return;var ch=0,l=hist[rm]||[];rows.forEach(function(r){if(r.del===2){var k=l.findIndex(function(x){return x.sid===r.id});if(k>-1){l.splice(k,1);ch=1}l.forEach(function(x){if(x.q&&x.q.id===r.id){x.q=null;ch=1}});return}var m=l.find(function(x){return x.sid===r.id});if(m){setSt(m,r);ch=1}});if(ch&&rm===room)refresh()}
@@ -1853,5 +1853,7 @@ var UX={
 </script>
 <script src="/rel.js"></script>
 <script src="/gestures.js"></script>
+<script src="/emotes.js"></script>
+<script src="/emotes-ui.js"></script>
 </body>
 </html>
