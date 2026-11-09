@@ -15,7 +15,7 @@ const CAP = 500;                    // أقصى عدد ذكريات (ملاحظ�
 const HOURLY_MAX = 30;              // أقصى إضافة في الساعة لكل عضو
 const PAGE = 30;                    // حجم الصفحة
 
-const KINDS = ['all', 'note', 'msg', 'gesture'];
+const KINDS = ['all', 'note', 'msg', 'date', 'gesture'];
 
 export function memTables(env) {
   return [
@@ -118,11 +118,11 @@ async function memList(req, env, url) {
   const rid = c.r.id;
 
   // الأعمدة موحّدة: id, src (m = ذكرى محفوظة، g = حركة), kind, text, by_id, aux, ts
-  const mem = "SELECT id,'m' src,kind,text,by_id,src_name aux,COALESCE(src_ts,ts) ts FROM rel_memories WHERE rel_id=? AND COALESCE(src_ts,ts)<?" + (kind === 'note' || kind === 'msg' ? ' AND kind=?' : '');
+  const mem = "SELECT id,'m' src,kind,text,by_id,src_name aux,COALESCE(src_ts,ts) ts FROM rel_memories WHERE rel_id=? AND COALESCE(src_ts,ts)<?" + (kind === 'note' || kind === 'msg' || kind === 'date' ? ' AND kind=?' : '');
   const ges = "SELECT l.id,'g' src,'gesture' kind,g.name text,l.from_id by_id,g.emoji aux,l.ts ts FROM gesture_log l JOIN gestures g ON g.id=l.gid WHERE l.rel_id=? AND l.ts<?";
   let sql, args;
   if (kind === 'gesture') { sql = ges; args = [rid, before]; }
-  else if (kind === 'note' || kind === 'msg') { sql = mem; args = [rid, before, kind]; }
+  else if (kind === 'note' || kind === 'msg' || kind === 'date') { sql = mem; args = [rid, before, kind]; }
   else { sql = mem + ' UNION ALL ' + ges; args = [rid, before, rid, before]; }
   // الترتيب بوقت الحدث (وقت الرسالة الأصلي للمحفوظة). الصفحة التالية تبدأ من آخر ts مُعاد.
   sql = 'SELECT * FROM (' + sql + ') ORDER BY ts DESC, id DESC LIMIT ?';
@@ -132,8 +132,8 @@ async function memList(req, env, url) {
   const first = !q.get('before');
   if (first) {
     st.push(env.DB.prepare(
-      "SELECT (SELECT COUNT(*) FROM rel_memories WHERE rel_id=? AND kind='note') note, (SELECT COUNT(*) FROM rel_memories WHERE rel_id=? AND kind='msg') msg, (SELECT COUNT(*) FROM gesture_log WHERE rel_id=?) gesture"
-    ).bind(rid, rid, rid));
+      "SELECT (SELECT COUNT(*) FROM rel_memories WHERE rel_id=? AND kind='note') note, (SELECT COUNT(*) FROM rel_memories WHERE rel_id=? AND kind='msg') msg, (SELECT COUNT(*) FROM rel_memories WHERE rel_id=? AND kind='date') date, (SELECT COUNT(*) FROM gesture_log WHERE rel_id=?) gesture"
+    ).bind(rid, rid, rid, rid));
   }
   const rs = await env.DB.batch(st);
   let rows = rs[0].results;
