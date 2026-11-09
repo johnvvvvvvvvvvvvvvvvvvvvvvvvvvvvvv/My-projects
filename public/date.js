@@ -147,12 +147,13 @@ function dtBuild(id, j) {
   root.appendChild(cv);
 
   var btn = 'background:transparent;border:1px solid #fff7;color:#fff;border-radius:8px;padding:6px 10px;cursor:pointer;font:inherit';
-  var top = dtNode('div', 'position:absolute;top:env(safe-area-inset-top,0px);inset-inline:0;display:flex;gap:6px;align-items:center;padding:10px;z-index:2');
+  var top = dtNode('div', 'position:absolute;top:env(safe-area-inset-top,0px);inset-inline:0;display:flex;gap:6px;align-items:center;padding:10px;z-index:2;flex-wrap:wrap');
   top.appendChild(dtNode('b', '', '🕯️ ' + j.ty + (j.place ? ' · ' + j.place : '')));
   var clk = dtNode('span', 'font-variant-numeric:tabular-nums', '00:00'); clk.id = 'dtm2'; top.appendChild(clk);
   top.appendChild(dtNode('span', 'flex:1'));
   [['🎲 سؤال', function () { api('date/ask', { id: DT.id }).then(function (r) { if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر السؤال')); }); }],
    ['💞 حركات', function () { if (typeof gstOpen === 'function') gstOpen(); }],
+   ['🚩 بلاغ', function () { if (window.relReport) relReport('date', DT.id); }],
    ['⤴️ خروج', function () { dtClose('خرجت من الموعد، يمكنك العودة إليه من نافذة الارتباط'); }],
    ['🏁 إنهاء', function () {
      if (!confirm('إنهاء الموعد للطرفين وحفظه في ذكرياتنا؟')) return;

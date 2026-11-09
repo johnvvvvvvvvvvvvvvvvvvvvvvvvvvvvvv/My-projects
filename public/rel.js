@@ -215,7 +215,7 @@ function relAsk(t) {
   if (bar0 && bar0.parentNode) {
     var strip = document.createElement('div');
     strip.id = 'lvstrip';
-    [['q', '🎲 سؤال صراحة'], ['h', '💭 صراحة'], ['m', '❤️ ذكرى'], ['g', '💞 حركات'], ['s', '📌 احفظ آخر رسالة'], ['d', '📅 موعد'], ['b', '📖 ذكرياتنا']].forEach(function (x) {
+    [['q', '🎲 سؤال صراحة'], ['h', '💭 صراحة'], ['m', '❤️ ذكرى'], ['g', '💞 حركات'], ['s', '📌 احفظ آخر رسالة'], ['d', '📅 موعد'], ['b', '📖 ذكرياتنا'], ['r', '🚩 بلاغ']].forEach(function (x) {
       var b = document.createElement('button');
       b.className = 'g'; b.dataset.a = x[0]; b.textContent = x[1];
       strip.appendChild(b);
@@ -234,6 +234,7 @@ function relAsk(t) {
       }
       else if (a === 'd') relOpen('date');
       else if (a === 'b') relOpen('mem');
+      else if (a === 'r') { if (window.relReport) relReport('partner', 0); }
     };
     setInterval(function () {
       try { strip.style.display = relIsLove(room) && REL && REL.active ? 'flex' : 'none'; } catch (e) {}

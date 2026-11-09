@@ -414,6 +414,7 @@ function msgMenu(m,e,isPM){var mn=$('menu');mn.textContent='';var r=el('div','pk
 function it(l,f){var b=el('button','',l);b.onclick=function(){mn.style.display='none';f()};mn.appendChild(b)}
 it('↩️ رد',function(){rp={n:m.u.name,t:m.t.slice(0,60),id:m.id,pm:!!isPM};if(isPM){$('pi').placeholder='↩️ رد على '+m.u.name+': '+rp.t.slice(0,20);$('pi').focus()}else{var p=$('rp');p.style.display='flex';p.textContent='';p.appendChild(el('span','','↩️ رد على '+m.u.name+': '+rp.t));var x=el('button','g','×');x.onclick=clearRp;p.appendChild(x);$('txt').focus()}});
 if(!isPM&&!m.s&&!m.poll&&m.sid&&window.relMemSave&&window.relIsLove&&relIsLove(room))it('💞 احفظ في ذكرياتنا',function(){relMemSave(m)});
+if(!isPM&&!m.s&&!m.poll&&m.sid&&m.u!==me&&window.relReport&&window.relIsLove&&relIsLove(room))it('🚩 إبلاغ عن الرسالة',function(){relReport('msg',m.sid)});
 if(m.u===me&&!m.poll&&Date.now()-m.ts<9e5)it('✏️ تعديل',function(){ask('تعديل الرسالة',[{k:'t',l:'النص',v:m.t}],function(o){var nt=String(o.t||'').trim();if(!nt||nt===m.t)return;if(nt.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');return}if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}soc('msg/edit',{scope:isPM?'p':'r',id:m.sid,text:nt},function(r){if(r.j&&r.j.ok){m.o=m.o||m.t;m.t=nt;m.ed=1}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر التعديل'));refresh()})})});
 if(m.u===me||(!isPM&&lv(me)>=2&&can(me,m.u,2)))it('🗑️ حذف',function(){if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}soc('msg/delete',{scope:isPM?'p':'r',id:m.sid},function(r){if(r.j&&r.j.ok){addLog(me.name+' حذف رسالة '+m.u.name);if(!isPM&&m.u!==me)applyUpd([{id:m.sid,del:2}],room);else setSt(m,{del:1})}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الحذف'));refresh()})});
 if(!isPM&&lv(me)>=3)it('📌 تثبيت',function(){if(!m.sid){toast('⏳ انتظر اكتمال الإرسال');return}var rm=room;soc('pin/set',{id:m.sid},function(r){if(r.j&&r.j.ok){pins[rm]=m.t.slice(0,300);addLog(me.name+' ثبّت رسالة في '+rm);if(rm===room)drawPin()}else toast('⚠️ '+((r.j&&r.j.error)||'تعذر التثبيت'))})});
@@ -1351,7 +1352,7 @@ if(first)w.textContent='';else{var o=w.querySelector('.ld');if(o)o.remove()}
 if(!(r.j&&r.j.rows)){errBox(w,r);return}
 if(first&&!r.j.rows.length)w.appendChild(el('small','mu','لا بلاغات.'));
 r.j.rows.forEach(function(x){var d=el('div','nw');d.appendChild(el('div','',(x.done?'✅ ':'🚩 ')+(x.tname||'؟')+' ← '+(x.rname||'؟')+': '+x.reason));
-d.appendChild(el('small','mu',ago(x.ts)+(x.ctx==='pm'?' · من الخاص':'')+(x.open_n>1?' · بلاغات معلّقة عليه: '+x.open_n:'')));
+d.appendChild(el('small','mu',ago(x.ts)+(x.ctx==='pm'?' · من الخاص':x.ctx==='love'?' · من الارتباط 💞':'')+(x.open_n>1?' · بلاغات معلّقة عليه: '+x.open_n:'')));
 var f=el('div','pk'),k=el('button','g',x.done?'↩️ إعادة فتح':'✅ تمت المعالجة');k.onclick=function(){soc('mod/report/done',{id:x.id,done:!!x.done?false:true},function(z){if(z.j&&z.j.ok)showLog();else toast('⚠️ '+((z.j&&z.j.error)||'تعذر التنفيذ'))})};f.appendChild(k);
 var hb=el('button','g','📜 سجله');hb.onclick=function(){var t=users.find(function(u){return u.id===x.target_id});if(t)userFile(t);else toast('المستخدم غير متصل: افتح سجله من قائمته عند ظهوره')};f.appendChild(hb);if(me.role==='owner')ownDel(f,'owner/report/del',x.id,'حذف هذا البلاغ نهائياً؟');d.appendChild(f);w.appendChild(d)});
 if(r.j.more&&r.j.rows.length)moreBtn(w,function(){logRep(w,r.j.rows[r.j.rows.length-1].id,0)})})}
@@ -1852,6 +1853,7 @@ var UX={
   }
 };
 </script>
+<script src="/lovereport.js"></script>
 <script src="/rel.js"></script>
 <script src="/gestures.js"></script>
 <script src="/emotes.js"></script>

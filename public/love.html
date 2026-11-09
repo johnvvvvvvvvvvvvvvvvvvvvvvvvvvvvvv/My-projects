@@ -6,6 +6,7 @@
 <title>الارتباط</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bodymovin/5.12.2/lottie.min.js"></script>
 <script src="/ux.js"></script>
+<script src="/lovereport.js"></script>
 <style>
 :root{--bg:#f4f1ec;--sf:#fff;--tx:#1d2330;--mu:#566070;--ac:#0f766e;--ac2:#fff;--bd:#e2ddd5;--me:#d9f2ee;--dg:#b42318}
 @media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#10151c;--sf:#1a212b;--tx:#e8ecf2;--mu:#98a2b3;--ac:#2dd4bf;--ac2:#06201d;--bd:#2c3644;--me:#12413c}}
@@ -140,6 +141,7 @@ function drawMe(v,s){
   var end=el('button','dg','إنهاء الارتباط');
   end.onclick=function(){if(confirm('إنهاء الارتباط مع '+s.active.partner.name+'؟'))act('rel/end',{id:s.active.id},'تم إنهاء الارتباط')};
   c.appendChild(end);
+  var rp=el('button','g','🚩 إبلاغ عن شريكي');rp.onclick=function(){relReport('partner',0,{relId:s.active.id,onEnd:load})};c.appendChild(rp);
   v.appendChild(c);
   UX.play(box,'hearts',{loop:true});
 }
@@ -262,6 +264,7 @@ function drawDt(v,s){
       var cn=el('button','g',x.status==='pending'&&!x.mine?'':'إلغاء');
       if(cn.textContent){cn.onclick=function(){if(confirm('إلغاء هذا الموعد؟'))dtAct('cancel',x.id,'أُلغي الموعد')};bt.appendChild(cn)}
     }
+    if(!x.mine||x.status==='live'){var rb=el('button','g','🚩');rb.title='إبلاغ';rb.setAttribute('aria-label','إبلاغ عن الموعد');rb.onclick=function(){relReport('date',x.id,{relId:s.active.id,onEnd:load})};bt.appendChild(rb)}
     card.appendChild(bt);wrap.appendChild(card);
   });
   if(d.past.length){
@@ -341,6 +344,11 @@ function drawMm(v,s){
         },function(){toast('⚠️ تعذر الاتصال بالخادم','star')});
       };
       meta.appendChild(d);
+    }
+    if(it.src==='m'&&it.kind==='note'&&!it.mine){
+      var rb=el('button','g x','🚩');rb.title='إبلاغ';rb.setAttribute('aria-label','إبلاغ عن الملاحظة');
+      rb.onclick=function(){relReport('memory',it.id,{relId:s.active.id,onEnd:load})};
+      meta.appendChild(rb);
     }
     card.appendChild(meta);
     if(it.kind==='gesture')card.appendChild(el('div','tx',mmWho(it)+' أرسل '+it.text));
