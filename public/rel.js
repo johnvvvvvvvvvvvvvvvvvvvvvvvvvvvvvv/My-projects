@@ -127,13 +127,13 @@ function relOnSignal() {
   REL_TIMER = setTimeout(function () { relSync(); }, 400);
 }
 
-function relOpen() {
+function relOpen(tab) {
   if (document.getElementById('relov')) return;
   var d = document.createElement('div');
   d.id = 'relov';
   d.style.cssText = 'position:fixed;inset:0;z-index:35;background:#0008;display:flex;align-items:center;justify-content:center';
   var f = document.createElement('iframe');
-  f.src = '/love.html';
+  f.src = '/love.html' + (tab === 'date' ? '#date' : tab === 'mem' ? '#mem' : '');
   f.style.cssText = 'width:min(480px,100%);height:min(640px,100%);border:0;border-radius:14px;background:var(--bg)';
   d.appendChild(f);
   d.onclick = function (e) { if (e.target === d) relClose(); };
@@ -171,7 +171,7 @@ function relAsk(t) {
 
   // ---- غرفة الحب: الشكل والتنقل ----
   var st = document.createElement('style');
-  st.textContent = 'body.lovemode #msgs{background:linear-gradient(160deg,rgba(236,72,153,.14),rgba(139,92,246,.16))}body.lovemode #rb{color:#f472b6}';
+  st.textContent = 'body.lovemode #msgs{background:radial-gradient(circle at 15% 10%,#fb718533,transparent 55%),radial-gradient(circle at 85% 90%,#7c3aed26,transparent 55%)}body.lovemode #rb{color:#f472b6}#lvstrip{display:none;gap:6px;overflow-x:auto;padding:6px 8px;background:var(--sf);border-top:1px solid var(--bd)}#lvstrip button{white-space:nowrap;padding:5px 10px;font-size:13px}';
   document.head.appendChild(st);
 
   var sel = document.getElementById('room');
@@ -206,6 +206,38 @@ function relAsk(t) {
         l.appendChild(d);
       } catch (e) {}
     };
+  }
+
+
+  // ---- شريط أزرار غرفة الحب (فوق شريط الكتابة، داخل الغرفة فقط) ----
+  var HQ = ['ما أكثر شيء أعجبك فيّ أول مرة؟', 'ما الذي يزعجك ولا تقوله لي؟', 'ما حلمك الذي لم تخبر به أحداً؟', 'متى شعرت أنك تحبني فعلاً؟', 'ما أجمل ذكرى بيننا؟', 'ما الذي تتمنى أن نفعله معاً؟'];
+  var bar0 = document.getElementById('bar');
+  if (bar0 && bar0.parentNode) {
+    var strip = document.createElement('div');
+    strip.id = 'lvstrip';
+    [['q', '🎲 سؤال صراحة'], ['h', '💭 صراحة'], ['m', '❤️ ذكرى'], ['g', '💞 حركات'], ['s', '📌 احفظ آخر رسالة'], ['d', '📅 موعد'], ['b', '📖 ذكرياتنا']].forEach(function (x) {
+      var b = document.createElement('button');
+      b.className = 'g'; b.dataset.a = x[0]; b.textContent = x[1];
+      strip.appendChild(b);
+    });
+    bar0.parentNode.insertBefore(strip, bar0);
+    strip.onclick = function (e) {
+      var a = e.target.dataset && e.target.dataset.a, t = document.getElementById('txt');
+      if (!a || !t) return;
+      if (a === 'q') { t.value = '💭 ' + HQ[Math.floor(Math.random() * HQ.length)]; t.focus(); }
+      else if (a === 'h' || a === 'm') { t.value = (a === 'h' ? '💭 ' : '❤️ ') + t.value.replace(/^(💭|❤️)\s*/, ''); t.focus(); }
+      else if (a === 'g') { if (typeof gstOpen === 'function') gstOpen(); }
+      else if (a === 's') {
+        var l = (typeof hist !== 'undefined' && hist[room] || []).filter(function (m) { return !m.s && m.sid && !m.poll; });
+        if (!l.length) { relToast('لا توجد رسالة لحفظها'); return; }
+        relMemSave(l[l.length - 1]);
+      }
+      else if (a === 'd') relOpen('date');
+      else if (a === 'b') relOpen('mem');
+    };
+    setInterval(function () {
+      try { strip.style.display = relIsLove(room) && REL && REL.active ? 'flex' : 'none'; } catch (e) {}
+    }, 500);
   }
 
   // داخل غرفة الحب: فحص أسرع (10 ثوانٍ) لاكتشاف إنهاء الشريك للارتباط

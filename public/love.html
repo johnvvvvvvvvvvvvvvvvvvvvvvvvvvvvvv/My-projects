@@ -54,6 +54,16 @@ main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12
 .mm .tx{white-space:pre-wrap;word-break:break-word;line-height:1.6}
 .mm .q{border-inline-start:3px solid var(--ac);padding-inline-start:10px}
 .mm .x{min-height:30px;padding:2px 10px;font-size:13px}
+.rose{--rose:#e11d48}
+header{background:linear-gradient(135deg,#be123c,#7c3aed);color:#fff;border-bottom:0}
+header b{color:#fff}
+header button.g{color:#fff;border-color:#fff7}
+.tabs{overflow-x:auto}.tabs button{white-space:nowrap}
+.tabs button.on{color:#e11d48;border-bottom-color:#e11d48}
+.chips button.on{background:#e11d48;border-color:#e11d48;color:#fff}
+.dt .st{font-size:12px;border-radius:99px;padding:1px 8px;background:var(--bd);color:var(--tx)}
+.dt select,.dt input{font:inherit;width:100%;border:1px solid var(--bd);border-radius:10px;padding:9px;background:var(--bg);color:var(--tx)}
+.dt .bt{display:flex;gap:8px;flex-wrap:wrap}
 #ts{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:8px 14px;z-index:20;display:none;box-shadow:0 6px 24px #0003;max-width:90%}
 </style>
 </head>
@@ -63,6 +73,7 @@ main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12
 <nav class="tabs">
   <button data-t="me" class="on">علاقتي</button>
   <button data-t="rq">الطلبات<span class="bd" id="bq" style="display:none"></span></button>
+  <button data-t="dt" id="tdt" style="display:none">مواعيد</button>
   <button data-t="mm" id="tmm" style="display:none">ذكرياتنا</button>
   <button data-t="st" id="tst" style="display:none">الإعدادات</button>
 </nav>
@@ -107,11 +118,12 @@ function draw(s){
   bq.style.display=n?'':'none';bq.textContent=n;
   $('tst').style.display=s&&s.active?'':'none';
   $('tmm').style.display=s&&s.active?'':'none';
-  if((tab==='st'||tab==='mm')&&!(s&&s.active))tab='me';
+  $('tdt').style.display=s&&s.active?'':'none';
+  if((tab==='st'||tab==='mm'||tab==='dt')&&!(s&&s.active))tab='me';
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('on',b.dataset.t===tab)});
   var v=$('v');v.textContent='';
   if(!s){v.appendChild(el('div','mu','تعذر تحميل الحالة. أغلق النافذة وافتحها مجدداً.'));return}
-  if(tab==='me')drawMe(v,s);else if(tab==='rq')drawRq(v,s);else if(tab==='mm')drawMm(v,s);else drawSt(v,s);
+  if(tab==='me')drawMe(v,s);else if(tab==='rq')drawRq(v,s);else if(tab==='mm')drawMm(v,s);else if(tab==='dt')drawDt(v,s);else drawSt(v,s);
 }
 
 function drawMe(v,s){
@@ -177,9 +189,91 @@ function drawSt(v,s){
 }
 
 
+
+/* ---------- مواعيد ---------- */
+var DTS={d:null,busy:false,key:0};
+var DT_ST={pending:'بانتظار الرد ⏳',accepted:'مقبول ✅',live:'جارٍ الآن 🕯️',done:'انتهى 🎬',declined:'اعتُذر عنه',cancelled:'أُلغي'};
+function dtWhen(ts){try{return new Date(ts).toLocaleString('ar',{dateStyle:'medium',timeStyle:'short'})}catch(e){return new Date(ts).toLocaleString()}}
+function dtLoad(){
+  if(DTS.busy)return;
+  DTS.busy=true;var key=DTS.key;
+  call('date/list').then(function(r){
+    DTS.busy=false;
+    if(key!==DTS.key||tab!=='dt')return;
+    if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تحميل المواعيد'),'star');return}
+    DTS.d=r.j;draw(S);
+  },function(){DTS.busy=false;toast('⚠️ تعذر الاتصال بالخادم','star')});
+}
+function dtAct(path,id,okMsg,extra){
+  var b={id:id};if(extra)for(var k in extra)b[k]=extra[k];
+  call('date/'+path,b).then(function(r){
+    if(r.j&&r.j.ok){if(okMsg)toast(okMsg,'hearts');DTS.key++;DTS.busy=false;dtLoad()}
+    else toast('⚠️ '+((r.j&&r.j.error)||'تعذر تنفيذ الطلب'),'star');
+  },function(){toast('⚠️ تعذر الاتصال بالخادم','star')});
+}
+function dtStart(id){
+  var P=window.parent;
+  if(P!==window&&P.dateOpen){P.relClose();P.dateOpen(id)}
+  else toast('افتح الموعد من داخل الشات','star');
+}
+function drawDt(v,s){
+  var wrap=el('div','dt');wrap.style.cssText='display:flex;flex-direction:column;gap:12px';
+  var d=DTS.d;
+  // دعوة جديدة
+  var c=el('div','card');c.appendChild(el('b','','📅 موعد غرامي جديد'));
+  var sel=document.createElement('select');
+  ((d&&d.types)||['عشاء رومانسي','سينما','مشي على الشاطئ','قهوة وحديث','أمسية ألعاب']).forEach(function(t){var o=document.createElement('option');o.textContent=t;o.value=t;sel.appendChild(o)});
+  var at=document.createElement('input');at.type='datetime-local';
+  var d0=new Date(Date.now()+36e5);at.value=new Date(d0.getTime()-d0.getTimezoneOffset()*6e4).toISOString().slice(0,16);
+  var pl=document.createElement('input');pl.type='text';pl.maxLength=60;pl.placeholder='المكان أو الفكرة (اختياري)';
+  var go=el('button','','💌 إرسال الدعوة');
+  go.onclick=function(){
+    var ts=new Date(at.value).getTime();
+    if(!(ts>0)){toast('⚠️ اختر وقت الموعد','star');return}
+    go.disabled=true;
+    call('date/invite',{ty:sel.value,at:ts,place:pl.value.trim()}).then(function(r){
+      go.disabled=false;
+      if(r.j&&r.j.ok){toast('💌 أُرسلت الدعوة','hearts');DTS.key++;DTS.busy=false;dtLoad()}
+      else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الإرسال'),'star');
+    },function(){go.disabled=false;toast('⚠️ تعذر الاتصال بالخادم','star')});
+  };
+  [sel,at,pl,go].forEach(function(x){c.appendChild(x)});wrap.appendChild(c);
+  if(!d){wrap.appendChild(el('div','mu','جارٍ التحميل...'));v.appendChild(wrap);dtLoad();return}
+  // المواعيد المفتوحة
+  wrap.appendChild(el('b','','مواعيدكما'));
+  if(!d.open.length){var e=el('div','');wrap.appendChild(e);UX.empty(e,'sparkles','لا مواعيد بعد. أرسل دعوة لشريكك.')}
+  d.open.forEach(function(x){
+    var card=el('div','card');
+    var row=el('div','row');
+    row.appendChild(el('b','','📅 '+x.ty+(x.place?' · '+x.place:'')));
+    row.appendChild(el('span','st',DT_ST[x.status]||x.status));
+    card.appendChild(row);
+    card.appendChild(el('div','mu',dtWhen(x.at)+(x.mine?' · دعوتك':' · دعوة من '+d.partner.name)));
+    var bt=el('div','bt');
+    if(x.status==='pending'&&!x.mine){
+      var ok=el('button','','قبول');ok.onclick=function(){dtAct('respond',x.id,'💞 قبلتَ الموعد',{accept:1})};
+      var no=el('button','g','اعتذار');no.onclick=function(){dtAct('respond',x.id,'تم الاعتذار',{accept:0})};
+      bt.appendChild(ok);bt.appendChild(no);
+    }
+    if(x.status==='accepted'||x.status==='live'){
+      var st=el('button','',x.status==='live'?'▶️ انضم للموعد':'▶️ ابدأ الموعد الآن');st.onclick=function(){dtStart(x.id)};bt.appendChild(st);
+    }
+    if(x.status==='pending'||x.status==='accepted'){
+      var cn=el('button','g',x.status==='pending'&&!x.mine?'':'إلغاء');
+      if(cn.textContent){cn.onclick=function(){if(confirm('إلغاء هذا الموعد؟'))dtAct('cancel',x.id,'أُلغي الموعد')};bt.appendChild(cn)}
+    }
+    card.appendChild(bt);wrap.appendChild(card);
+  });
+  if(d.past.length){
+    wrap.appendChild(el('div','mu','سابقاً'));
+    d.past.forEach(function(x){wrap.appendChild(el('div','mu','• '+x.ty+' · '+(DT_ST[x.status]||x.status)+' · '+dtWhen(x.ended||x.at)))});
+  }
+  v.appendChild(wrap);
+}
+
 /* ---------- ذكرياتنا ---------- */
 var MM={kind:'all',items:[],next:0,more:false,counts:null,names:{},busy:false,key:0};
-var MM_KINDS=[['all','الكل'],['note','ملاحظات'],['msg','رسائل'],['gesture','حركات']];
+var MM_KINDS=[['all','الكل'],['note','ملاحظات'],['msg','رسائل'],['date','مواعيد'],['gesture','حركات']];
 function mmWho(it){return it.by===(MM.names.me&&MM.names.me.id)?'أنت':((MM.names.partner&&MM.names.partner.name)||'شريكك')}
 function mmWhen(ts){try{return new Date(ts).toLocaleString('ar',{dateStyle:'medium',timeStyle:'short'})}catch(e){return new Date(ts).toLocaleString()}}
 function mmLoad(reset){
@@ -220,7 +314,7 @@ function drawMm(v,s){
   // الفلاتر
   var ch=el('div','chips');
   MM_KINDS.forEach(function(k){
-    var n=MM.counts?(k[0]==='all'?(MM.counts.note+MM.counts.msg+MM.counts.gesture):MM.counts[k[0]]):null;
+    var n=MM.counts?(k[0]==='all'?(MM.counts.note+MM.counts.msg+MM.counts.date+MM.counts.gesture):MM.counts[k[0]]):null;
     var b=el('button',MM.kind===k[0]?'on':'',k[1]+(n!=null?' ('+n+')':''));
     b.onclick=function(){if(MM.kind===k[0])return;MM.kind=k[0];MM.items=[];MM.key++;MM.busy=false;MM.next=0;MM.more=false;mmLoad(true);draw(S)};
     ch.appendChild(b);
@@ -235,7 +329,7 @@ function drawMm(v,s){
   MM.items.forEach(function(it){
     var card=el('div','card');
     var meta=el('div','meta');
-    var icon=it.kind==='note'?'📝':it.kind==='msg'?'💬':(it.aux||'✨');
+    var icon=it.kind==='note'?'📝':it.kind==='msg'?'💬':it.kind==='date'?'📅':(it.aux||'✨');
     meta.appendChild(el('span','mu',icon+' '+(it.kind==='msg'?(it.aux||mmWho(it))+' · ':it.kind==='note'?mmWho(it)+' · ':'')+mmWhen(it.ts)));
     if(it.mine){
       var d=el('button','g x','🗑️');
@@ -262,11 +356,12 @@ function drawMm(v,s){
   if(!MM.items.length&&!MM.busy&&MM.counts===null)mmLoad(true);
 }
 
-document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){var t=b.dataset.t;if(t==='mm'&&tab!=='mm'){MM.items=[];MM.counts=null;MM.next=0;MM.more=false;MM.busy=false;MM.key++}tab=t;draw(S)}});
+document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){var t=b.dataset.t;if(t==='mm'&&tab!=='mm'){MM.items=[];MM.counts=null;MM.next=0;MM.more=false;MM.busy=false;MM.key++}if(t==='dt'&&tab!=='dt'){DTS.d=null;DTS.busy=false;DTS.key++}tab=t;draw(S)}});
 $('cl').onclick=function(){
   if(window.parent!==window&&window.parent.relClose)window.parent.relClose();
   else if(history.length>1)history.back();else location.href='/chat.html';
 };
+var hs=(location.hash||'').slice(1);if(hs==='date')tab='dt';else if(hs==='mem')tab='mm';
 load();
 })();
 </script>
