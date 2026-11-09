@@ -87,6 +87,16 @@ function relToast(msg, key) {
   else if (typeof toast === 'function') toast(msg);
 }
 
+// «ذكرياتنا»: حفظ رسالة من غرفة الحب (تُنسخ نصاً، فتبقى بعد حذف رسائل الغرفة القديمة)
+function relMemSave(m) {
+  if (!m || !m.sid) { relToast('⏳ انتظر اكتمال الإرسال'); return; }
+  api('mem/save', { id: m.sid }).then(function (r) {
+    var j = r.j || {};
+    if (j.ok) relToast(j.dup ? 'هذه الرسالة محفوظة من قبل' : '💞 حُفظت في ذكرياتنا (يراها شريكك أيضاً)', j.dup ? null : 'hearts');
+    else relToast('⚠️ ' + (j.error || 'تعذر الحفظ'));
+  }, function () { relToast('⚠️ تعذر الاتصال بالخادم'); });
+}
+
 // الإيماءات الجديدة (emotes.js): تتجاهل بصمت إن لم يكن المحرك محمّلاً
 function relEmo(ev) { try { if (window.EMO) EMO.fire(ev); } catch (e) {} }
 
@@ -157,7 +167,7 @@ function relAsk(t) {
   var first = setInterval(function () {
     try { if (typeof me !== 'undefined' && me) { clearInterval(first); relDraw(); relSync(1); } } catch (e) {}
   }, 1000);
-  window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose; window.relGoRoom = relGoRoom; window.relMenu = relMenu;
+  window.relAsk = relAsk; window.relOnSignal = relOnSignal; window.relClose = relClose; window.relGoRoom = relGoRoom; window.relMenu = relMenu; window.relMemSave = relMemSave;
 
   // ---- غرفة الحب: الشكل والتنقل ----
   var st = document.createElement('style');

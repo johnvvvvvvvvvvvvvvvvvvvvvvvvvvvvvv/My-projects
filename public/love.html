@@ -46,6 +46,14 @@ main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12
 .sw{display:flex;align-items:center;justify-content:space-between;gap:10px;padding:8px 0;border-bottom:1px solid var(--bd)}
 .sw:last-child{border-bottom:0}
 .sw input{width:22px;height:22px;accent-color:var(--ac)}
+.chips{display:flex;gap:6px;flex-wrap:wrap}
+.chips button{min-height:34px;padding:4px 12px;background:transparent;color:var(--mu);border:1px solid var(--bd);font-size:13px}
+.chips button.on{background:var(--ac);color:var(--ac2);border-color:var(--ac)}
+.mm textarea{font:inherit;width:100%;min-height:64px;resize:vertical;border:1px solid var(--bd);border-radius:10px;padding:8px;background:var(--bg);color:var(--tx)}
+.mm .meta{display:flex;align-items:center;justify-content:space-between;gap:8px}
+.mm .tx{white-space:pre-wrap;word-break:break-word;line-height:1.6}
+.mm .q{border-inline-start:3px solid var(--ac);padding-inline-start:10px}
+.mm .x{min-height:30px;padding:2px 10px;font-size:13px}
 #ts{position:fixed;top:12px;left:50%;transform:translateX(-50%);background:var(--sf);border:1px solid var(--ac);border-radius:10px;padding:8px 14px;z-index:20;display:none;box-shadow:0 6px 24px #0003;max-width:90%}
 </style>
 </head>
@@ -55,6 +63,7 @@ main{flex:1;overflow:auto;padding:14px;display:flex;flex-direction:column;gap:12
 <nav class="tabs">
   <button data-t="me" class="on">علاقتي</button>
   <button data-t="rq">الطلبات<span class="bd" id="bq" style="display:none"></span></button>
+  <button data-t="mm" id="tmm" style="display:none">ذكرياتنا</button>
   <button data-t="st" id="tst" style="display:none">الإعدادات</button>
 </nav>
 <main id="v"></main>
@@ -97,11 +106,12 @@ function draw(s){
   var n=s?s.incoming.length:0,bq=$('bq');
   bq.style.display=n?'':'none';bq.textContent=n;
   $('tst').style.display=s&&s.active?'':'none';
-  if(tab==='st'&&!(s&&s.active))tab='me';
+  $('tmm').style.display=s&&s.active?'':'none';
+  if((tab==='st'||tab==='mm')&&!(s&&s.active))tab='me';
   document.querySelectorAll('.tabs button').forEach(function(b){b.classList.toggle('on',b.dataset.t===tab)});
   var v=$('v');v.textContent='';
   if(!s){v.appendChild(el('div','mu','تعذر تحميل الحالة. أغلق النافذة وافتحها مجدداً.'));return}
-  if(tab==='me')drawMe(v,s);else if(tab==='rq')drawRq(v,s);else drawSt(v,s);
+  if(tab==='me')drawMe(v,s);else if(tab==='rq')drawRq(v,s);else if(tab==='mm')drawMm(v,s);else drawSt(v,s);
 }
 
 function drawMe(v,s){
@@ -166,7 +176,93 @@ function drawSt(v,s){
   v.appendChild(c);
 }
 
-document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){tab=b.dataset.t;draw(S)}});
+
+/* ---------- ذكرياتنا ---------- */
+var MM={kind:'all',items:[],next:0,more:false,counts:null,names:{},busy:false,key:0};
+var MM_KINDS=[['all','الكل'],['note','ملاحظات'],['msg','رسائل'],['gesture','حركات']];
+function mmWho(it){return it.by===(MM.names.me&&MM.names.me.id)?'أنت':((MM.names.partner&&MM.names.partner.name)||'شريكك')}
+function mmWhen(ts){try{return new Date(ts).toLocaleString('ar',{dateStyle:'medium',timeStyle:'short'})}catch(e){return new Date(ts).toLocaleString()}}
+function mmLoad(reset){
+  if(MM.busy)return;
+  MM.busy=true;
+  var key=MM.key;
+  var q='mem/list?kind='+MM.kind+(reset?'':'&before='+MM.next);
+  call(q).then(function(r){
+    MM.busy=false;
+    if(key!==MM.key||tab!=='mm')return;           // تغيّر الفلتر أو التبويب أثناء التحميل
+    if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تحميل الذكريات'),'star');return}
+    if(reset)MM.items=[];
+    MM.items=MM.items.concat(r.j.items);
+    MM.next=r.j.next;MM.more=!!r.j.more;
+    MM.names={me:r.j.me,partner:r.j.partner};
+    if(r.j.counts)MM.counts=r.j.counts;
+    if(tab==='mm')draw(S);
+  },function(){MM.busy=false;toast('⚠️ تعذر الاتصال بالخادم','star')});
+}
+function drawMm(v,s){
+  var wrap=el('div','mm');wrap.style.cssText='display:flex;flex-direction:column;gap:12px';
+  // كتابة ملاحظة
+  var c=el('div','card');
+  c.appendChild(el('b','','✍️ أضف ذكرى'));
+  var ta=document.createElement('textarea');ta.maxLength=300;ta.placeholder='اكتب شيئاً تريدان تذكّره... (يراه شريكك أيضاً)';c.appendChild(ta);
+  var row=el('div','row');row.appendChild(el('span','mu','حتى 300 حرف'));
+  var add=el('button','','حفظ');
+  add.onclick=function(){
+    var t=ta.value.trim();if(!t){ta.focus();return}
+    add.disabled=true;
+    call('mem/add',{text:t}).then(function(r){
+      add.disabled=false;
+      if(r.j&&r.j.ok){toast('💞 حُفظت الذكرى','hearts');MM.key++;MM.busy=false;MM.counts=null;mmLoad(true)}
+      else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الحفظ'),'star');
+    },function(){add.disabled=false;toast('⚠️ تعذر الاتصال بالخادم','star')});
+  };
+  row.appendChild(add);c.appendChild(row);wrap.appendChild(c);
+  // الفلاتر
+  var ch=el('div','chips');
+  MM_KINDS.forEach(function(k){
+    var n=MM.counts?(k[0]==='all'?(MM.counts.note+MM.counts.msg+MM.counts.gesture):MM.counts[k[0]]):null;
+    var b=el('button',MM.kind===k[0]?'on':'',k[1]+(n!=null?' ('+n+')':''));
+    b.onclick=function(){if(MM.kind===k[0])return;MM.kind=k[0];MM.items=[];MM.key++;MM.busy=false;MM.next=0;MM.more=false;mmLoad(true);draw(S)};
+    ch.appendChild(b);
+  });
+  wrap.appendChild(ch);
+  // القائمة
+  if(!MM.items.length){
+    var e=el('div','');wrap.appendChild(e);
+    if(MM.busy||MM.counts===null)e.appendChild(el('div','mu','جارٍ التحميل...'));
+    else UX.empty(e,'sparkles','لا ذكريات هنا بعد. أضيفا ملاحظة، أو احفظا رسالة من غرفة الحب بالضغط عليها.');
+  }
+  MM.items.forEach(function(it){
+    var card=el('div','card');
+    var meta=el('div','meta');
+    var icon=it.kind==='note'?'📝':it.kind==='msg'?'💬':(it.aux||'✨');
+    meta.appendChild(el('span','mu',icon+' '+(it.kind==='msg'?(it.aux||mmWho(it))+' · ':it.kind==='note'?mmWho(it)+' · ':'')+mmWhen(it.ts)));
+    if(it.mine){
+      var d=el('button','g x','🗑️');
+      d.onclick=function(){
+        if(!confirm('حذف هذه الذكرى؟ ستختفي عندك وعند شريكك.'))return;
+        call('mem/del',{id:it.id}).then(function(r){
+          if(r.j&&r.j.ok){MM.items=MM.items.filter(function(x){return!(x.src==='m'&&x.id===it.id)});if(MM.counts&&MM.counts[it.kind]>0)MM.counts[it.kind]--;draw(S)}
+          else toast('⚠️ '+((r.j&&r.j.error)||'تعذر الحذف'),'star');
+        },function(){toast('⚠️ تعذر الاتصال بالخادم','star')});
+      };
+      meta.appendChild(d);
+    }
+    card.appendChild(meta);
+    if(it.kind==='gesture')card.appendChild(el('div','tx',mmWho(it)+' أرسل '+it.text));
+    else card.appendChild(el('div','tx'+(it.kind==='msg'?' q':''),it.text));
+    wrap.appendChild(card);
+  });
+  if(MM.more){
+    var more=el('button','g','عرض المزيد');
+    more.onclick=function(){more.disabled=true;mmLoad(false)};
+    wrap.appendChild(more);
+  }
+  v.appendChild(wrap);
+  if(!MM.items.length&&!MM.busy&&MM.counts===null)mmLoad(true);
+}
+
+document.querySelectorAll('.tabs button').forEach(function(b){b.onclick=function(){var t=b.dataset.t;if(t==='mm'&&tab!=='mm'){MM.items=[];MM.counts=null;MM.next=0;MM.more=false;MM.busy=false;MM.key++}tab=t;draw(S)}});
 $('cl').onclick=function(){
   if(window.parent!==window&&window.parent.relClose)window.parent.relClose();
   else if(history.length>1)history.back();else location.href='/chat.html';
