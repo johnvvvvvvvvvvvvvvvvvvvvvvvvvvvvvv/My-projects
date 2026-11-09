@@ -5,12 +5,13 @@
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
+import { gestureTables, GEST_WANT, GEST_POST, GEST_GET } from './gestures.js';
 
 export const LOVE_ROOM_PREFIX = 'love:'; // غرفة الحب: love:<id العلاقة>
 export const isLoveRoom = (room) => typeof room === 'string' && room.startsWith(LOVE_ROOM_PREFIX);
 const PENDING_TTL = 7 * DAY;             // الطلب غير المجاب يسقط بعد 7 أيام
 const MAX_OUT = 5;                       // أقصى عدد طلبات معلّقة يرسلها العضو
-const PREF_DEFAULTS = { auto_accept: 0, full_screen: 0, sound: 1, reduce_motion: 0, paused: 0 };
+const PREF_DEFAULTS = { auto_accept: 0, full_screen: 1, sound: 1, reduce_motion: 0, paused: 0 };
 const PREF_KEYS = Object.keys(PREF_DEFAULTS);
 
 // ---------- المخطط (يُستدعى من database.js ضمن نفس الدفعة) ----------
@@ -19,13 +20,15 @@ export function loveTables(env) {
     env.DB.prepare("CREATE TABLE IF NOT EXISTS relationships(id INTEGER PRIMARY KEY AUTOINCREMENT, user_a INTEGER NOT NULL, user_b INTEGER NOT NULL, status TEXT NOT NULL DEFAULT 'pending', created_at INTEGER NOT NULL, started_at INTEGER, ended_at INTEGER NOT NULL DEFAULT 0, ended_by INTEGER)"),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_rel_a ON relationships(user_a,status)'),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_rel_b ON relationships(user_b,status)'),
-    env.DB.prepare('CREATE TABLE IF NOT EXISTS rel_prefs(user_id INTEGER PRIMARY KEY, auto_accept INTEGER NOT NULL DEFAULT 0, full_screen INTEGER NOT NULL DEFAULT 0, sound INTEGER NOT NULL DEFAULT 1, reduce_motion INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0)'),
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS rel_prefs(user_id INTEGER PRIMARY KEY, auto_accept INTEGER NOT NULL DEFAULT 0, full_screen INTEGER NOT NULL DEFAULT 1, sound INTEGER NOT NULL DEFAULT 1, reduce_motion INTEGER NOT NULL DEFAULT 0, paused INTEGER NOT NULL DEFAULT 0)'),
+    ...gestureTables(env),
   ];
 }
 
 export const LOVE_WANT = {
   relationships: ['id', 'user_a', 'user_b', 'status', 'created_at', 'started_at', 'ended_at', 'ended_by'],
   rel_prefs: ['user_id', 'auto_accept', 'full_screen', 'sound', 'reduce_motion', 'paused'],
+  ...GEST_WANT,
 };
 
 // ---------- أدوات داخلية ----------
@@ -61,15 +64,16 @@ async function relStatus(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
   const now = Date.now();
-  const [rows, pf] = await env.DB.batch([
+  const [rows, pf, gp] = await env.DB.batch([
     env.DB.prepare(
       'SELECT r.id,r.user_a,r.status,r.started_at,p.id pid,p.name pname FROM relationships r ' +
       'JOIN users p ON p.id=CASE WHEN r.user_a=? THEN r.user_b ELSE r.user_a END ' +
       "WHERE (r.user_a=? OR r.user_b=?) AND (r.status='active' OR (r.status='pending' AND r.created_at>?)) ORDER BY r.id DESC"
     ).bind(u.id, u.id, u.id, now - PENDING_TTL),
     env.DB.prepare('SELECT auto_accept,full_screen,sound,reduce_motion,paused FROM rel_prefs WHERE user_id=?').bind(u.id),
+    env.DB.prepare('SELECT accept FROM gesture_prefs WHERE user_id=?').bind(u.id),
   ]);
-  const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}) } };
+  const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}), gest_ok: gp.results[0] ? gp.results[0].accept : 1 } };
   for (const r of rows.results) {
     const item = { id: r.id, partner: { id: r.pid, name: r.pname } };
     if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at, room: LOVE_ROOM_PREFIX + r.id }; }
@@ -177,11 +181,19 @@ async function relPrefs(req, env) {
   const { u, err } = await authMember(req, env);
   if (err) return err;
   const b = await readBody(req);
-  const keys = b && typeof b === 'object' ? PREF_KEYS.filter((k) => k in b) : [];
-  if (!keys.length) return json({ error: 'طلب غير صالح' }, 400);
-  const st = [env.DB.prepare('INSERT INTO rel_prefs(user_id) VALUES(?) ON CONFLICT(user_id) DO NOTHING').bind(u.id)];
-  // المفاتيح من قائمة بيضاء ثابتة، فلا خطر حقن في اسم العمود
-  for (const k of keys) st.push(env.DB.prepare('UPDATE rel_prefs SET ' + k + '=? WHERE user_id=?').bind(b[k] ? 1 : 0, u.id));
+  const isObj = b && typeof b === 'object';
+  const keys = isObj ? PREF_KEYS.filter((k) => k in b) : [];
+  const hasG = isObj && 'gest_ok' in b;
+  if (!keys.length && !hasG) return json({ error: 'طلب غير صالح' }, 400);
+  const st = [];
+  if (keys.length) {
+    // الصف الجديد يُنشأ بالقيم الافتراضية الصريحة (لا بقيم أعمدة الجدول القديم)
+    st.push(env.DB.prepare('INSERT INTO rel_prefs(user_id,auto_accept,full_screen,sound,reduce_motion,paused) VALUES(?,?,?,?,?,?) ON CONFLICT(user_id) DO NOTHING')
+      .bind(u.id, PREF_DEFAULTS.auto_accept, PREF_DEFAULTS.full_screen, PREF_DEFAULTS.sound, PREF_DEFAULTS.reduce_motion, PREF_DEFAULTS.paused));
+    // المفاتيح من قائمة بيضاء ثابتة، فلا خطر حقن في اسم العمود
+    for (const k of keys) st.push(env.DB.prepare('UPDATE rel_prefs SET ' + k + '=? WHERE user_id=?').bind(b[k] ? 1 : 0, u.id));
+  }
+  if (hasG) st.push(env.DB.prepare('INSERT INTO gesture_prefs(user_id,accept) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET accept=excluded.accept').bind(u.id, b.gest_ok ? 1 : 0));
   await env.DB.batch(st);
   return json({ ok: true });
 }
@@ -197,10 +209,11 @@ export async function loveGuard(env, u, room) {
 }
 
 export const REL_POST = {
+  ...GEST_POST,
   '/api/rel/request': relRequest,
   '/api/rel/accept': relAccept,
   '/api/rel/decline': relDecline,
   '/api/rel/end': relEnd,
   '/api/rel/prefs': relPrefs,
 };
-export const REL_GET = { '/api/rel/status': relStatus };
+export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET };
