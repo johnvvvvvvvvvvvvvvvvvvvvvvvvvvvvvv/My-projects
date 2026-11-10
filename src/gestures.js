@@ -24,6 +24,7 @@ const SEED = [
   ['clap',    'تصفيق',        '👏', 'clap',       'يصفّق لك', '✨', 8],
   ['star',    'نجمة',         '⭐', 'star',       'أهداك نجمة', '⭐', 9],
   ['party',   'احتفال',       '🎉', 'sparkles',   'يحتفل معك', '🎉', 10],
+  ['hands',   'مسك اليد',     '🤝', 'hearts',     'يمسك يدك', '🤍', 11],
 ];
 
 export function gestureTables(env) {

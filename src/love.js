@@ -73,7 +73,7 @@ async function relStatus(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
   const now = Date.now();
-  const [rows, pf, gp] = await env.DB.batch([
+  const [rows, pf, gp, sp] = await env.DB.batch([
     env.DB.prepare(
       'SELECT r.id,r.user_a,r.status,r.started_at,p.id pid,p.name pname FROM relationships r ' +
       'JOIN users p ON p.id=CASE WHEN r.user_a=? THEN r.user_b ELSE r.user_a END ' +
@@ -81,8 +81,9 @@ async function relStatus(req, env) {
     ).bind(u.id, u.id, u.id, now - PENDING_TTL),
     env.DB.prepare('SELECT auto_accept,full_screen,sound,reduce_motion,paused FROM rel_prefs WHERE user_id=?').bind(u.id),
     env.DB.prepare('SELECT accept FROM gesture_prefs WHERE user_id=?').bind(u.id),
+    env.DB.prepare('SELECT personal_space FROM scene_prefs WHERE user_id=?').bind(u.id),
   ]);
-  const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}), gest_ok: gp.results[0] ? gp.results[0].accept : 1 } };
+  const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}), gest_ok: gp.results[0] ? gp.results[0].accept : 1, personal_space: sp.results[0] ? sp.results[0].personal_space : 0 } };
   for (const r of rows.results) {
     const item = { id: r.id, partner: { id: r.pid, name: r.pname } };
     if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at, room: LOVE_ROOM_PREFIX + r.id }; }
@@ -193,7 +194,8 @@ async function relPrefs(req, env) {
   const isObj = b && typeof b === 'object';
   const keys = isObj ? PREF_KEYS.filter((k) => k in b) : [];
   const hasG = isObj && 'gest_ok' in b;
-  if (!keys.length && !hasG) return json({ error: 'طلب غير صالح' }, 400);
+  const hasP = isObj && 'personal_space' in b;
+  if (!keys.length && !hasG && !hasP) return json({ error: 'طلب غير صالح' }, 400);
   const st = [];
   if (keys.length) {
     // الصف الجديد يُنشأ بالقيم الافتراضية الصريحة (لا بقيم أعمدة الجدول القديم)
@@ -203,6 +205,7 @@ async function relPrefs(req, env) {
     for (const k of keys) st.push(env.DB.prepare('UPDATE rel_prefs SET ' + k + '=? WHERE user_id=?').bind(b[k] ? 1 : 0, u.id));
   }
   if (hasG) st.push(env.DB.prepare('INSERT INTO gesture_prefs(user_id,accept) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET accept=excluded.accept').bind(u.id, b.gest_ok ? 1 : 0));
+  if (hasP) st.push(env.DB.prepare('INSERT INTO scene_prefs(user_id,personal_space) VALUES(?,?) ON CONFLICT(user_id) DO UPDATE SET personal_space=excluded.personal_space').bind(u.id, b.personal_space ? 1 : 0));
   await env.DB.batch(st);
   return json({ ok: true });
 }

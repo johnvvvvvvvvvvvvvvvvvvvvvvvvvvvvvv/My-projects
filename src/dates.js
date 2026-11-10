@@ -30,12 +30,15 @@ export function dateTables(env) {
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_date_rel ON rel_dates(rel_id,id)'),
     env.DB.prepare("CREATE TABLE IF NOT EXISTS date_msgs(id INTEGER PRIMARY KEY AUTOINCREMENT, date_id INTEGER NOT NULL, user_id INTEGER NOT NULL, kind TEXT NOT NULL DEFAULT 'm', text TEXT NOT NULL, ts INTEGER NOT NULL)"),
     env.DB.prepare('CREATE INDEX IF NOT EXISTS idx_dmsg_date ON date_msgs(date_id,id)'),
+    // «المساحة الشخصية»: جدول مستقل كي لا نمسّ rel_prefs القائم؛ الافتراضي 0 (تأثيرات القرب مفتوحة)
+    env.DB.prepare('CREATE TABLE IF NOT EXISTS scene_prefs(user_id INTEGER PRIMARY KEY, personal_space INTEGER NOT NULL DEFAULT 0)'),
   ];
 }
 
 export const DATE_WANT = {
   rel_dates: ['id', 'rel_id', 'from_id', 'ty', 'place', 'at_ts', 'status', 'created_at', 'started_at', 'ended_at'],
   date_msgs: ['id', 'date_id', 'user_id', 'kind', 'text', 'ts'],
+  scene_prefs: ['user_id', 'personal_space'],
 };
 
 async function ctx(req, env) {
@@ -191,6 +194,10 @@ async function dEnd(req, env) {
       env.DB.prepare('DELETE FROM date_msgs WHERE date_id=?').bind(id),
     ]);
   }
+  // أغلق مسرح الموعد (يُحذف ما في ذاكرته). فشله لا يؤثر على إنهاء الموعد.
+  if (env.DATE_SCENE) {
+    try { await env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + id)).end(); } catch (e) { console.error('scene end', (e && e.message) || e); }
+  }
   return json({ ok: true });
 }
 
@@ -239,7 +246,15 @@ async function dPoll(req, env, url) {
       : await env.DB.prepare('SELECT id,user_id,kind,text,ts FROM date_msgs WHERE date_id=? AND ts>? ORDER BY id LIMIT 50').bind(id, now - FRESH).all();
     msgs = rs.results.map((m) => ({ id: m.id, mine: m.user_id === c.u.id, kind: m.kind, text: m.text, ts: m.ts }));
   }
-  return json({ ok: true, now, status: d.status, ty: d.ty, place: d.place, started: d.started_at, msgs });
+  // أول استعلام فقط: معرّفات الطرفين ونسخة صورتيهما لعرضهما على المسرح
+  let who = null;
+  if (!after && d.status === 'live') {
+    const pr = await env.DB.prepare('SELECT user_id,iv FROM profiles WHERE user_id IN (?,?)').bind(c.u.id, c.partner).all();
+    const iv = {};
+    for (const p of pr.results) iv[p.user_id] = p.iv || 0;
+    who = { me: { id: c.u.id, iv: iv[c.u.id] || 0 }, partner: { id: c.partner, iv: iv[c.partner] || 0 } };
+  }
+  return json({ ok: true, now, status: d.status, ty: d.ty, place: d.place, started: d.started_at, msgs, who });
 }
 
 export async function dateCleanup(env, now) {
