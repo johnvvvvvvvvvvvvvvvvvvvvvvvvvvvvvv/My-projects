@@ -35,4 +35,13 @@ export function canMod(a, t, min) {
   if (t.role === 'owner') return false;
   return lvOf(a) >= min && pwOf(a) > pwOf(t);
 }
+// أدلة بلاغات الارتباط (نص رسائل غرفة الحب والمواعيد) لا يراها إلا هذا المستوى فما فوق:
+// رتبة العضو 95 فأكثر، أو دور سوبر/مبرمج/صاحب. من سُحبت صلاحياته (rv) لا يراها.
+export const LOVE_EV_MIN_RANK = 95;
+export const LOVE_EV_MARK = ' · الدليل: «';   // الفاصل بين رأس البلاغ ونص الدليل داخل user_reports.reason
+export function canSeeLoveEvidence(u) {
+  if (!u || u.rv) return false;
+  if (u.role === 'owner' || u.role === 'programmer' || u.role === 'super') return true;
+  return u.role === 'member' && (u.rank || 0) >= LOVE_EV_MIN_RANK;
+}
 export const DEBUG = false;

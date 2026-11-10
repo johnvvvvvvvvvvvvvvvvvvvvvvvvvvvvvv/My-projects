@@ -6,6 +6,7 @@
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
+import { award } from './points.js';
 
 const COOLDOWN_MS = 30 * 1000; // فترة التهدئة بين حركتين من العضو نفسه
 const DAILY_MAX = 200;         // سقف يومي لكل عضو
@@ -100,6 +101,7 @@ async function gSend(req, env) {
   if (s.ig) return json({ ok: true, to: 0 });
 
   await env.DB.prepare('INSERT INTO gesture_log(rel_id,from_id,to_id,gid,ts) VALUES(?,?,?,?,?)').bind(r.id, u.id, to, gid, now).run();
+  await award(env, { relId: r.id, uid: u.id, kind: 'gesture', gid });   // نقاط الحب (لا ترمي أبداً)
   return json({ ok: true, to });
 }
 

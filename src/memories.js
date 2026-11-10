@@ -7,6 +7,7 @@
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
+import { award } from './points.js';
 
 const ROOM_PREFIX = 'love:';        // نفس بادئة LOVE_ROOM_PREFIX في love.js (لا استيراد لتفادي الدوران)
 const NOTE_MAX = 300;               // أقصى طول للملاحظة
@@ -64,6 +65,7 @@ async function memAdd(req, env) {
   const x = await env.DB.prepare(
     "INSERT INTO rel_memories(rel_id,by_id,kind,text,ts) VALUES(?,?,'note',?,?)"
   ).bind(c.r.id, c.u.id, text, now).run();
+  await award(env, { relId: c.r.id, uid: c.u.id, kind: 'note' });
   return json({ ok: true, id: x.meta && x.meta.last_row_id });
 }
 
@@ -90,6 +92,7 @@ async function memSave(req, env) {
     if (/UNIQUE/i.test(String((e && e.message) || e))) return json({ ok: true, dup: true });
     throw e;
   }
+  await award(env, { relId: c.r.id, uid: c.u.id, kind: 'msg' });
   return json({ ok: true });
 }
 

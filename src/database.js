@@ -1,5 +1,6 @@
 import { DAY, KEEP } from './config.js';
 import { loveTables, LOVE_WANT } from './love.js';
+import { ptsCleanupStmts } from './points.js';
 
 let schemaP = null;
 function ensureDatabase(env, seedWatchWords) {
@@ -211,6 +212,7 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM rel_memories WHERE rel_id NOT IN (SELECT id FROM relationships)'),
     env.DB.prepare('DELETE FROM date_msgs WHERE ts<?').bind(now - DAY),
     env.DB.prepare('DELETE FROM rel_reports WHERE ts<?').bind(now - 3 * KEEP),
+    ...ptsCleanupStmts(env, now),
     env.DB.prepare('DELETE FROM date_msgs WHERE date_id NOT IN (SELECT id FROM rel_dates)'),
     env.DB.prepare('DELETE FROM rel_dates WHERE rel_id NOT IN (SELECT id FROM relationships)'),
     env.DB.prepare("DELETE FROM reactions WHERE (scope='r' AND mid NOT IN (SELECT id FROM messages)) OR (scope='p' AND mid NOT IN (SELECT id FROM pms))"),

@@ -6,6 +6,7 @@
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 import { DAY } from './config.js';
+import { award } from './points.js';
 
 export const DATE_TYPES = ['عشاء رومانسي', 'سينما', 'مشي على الشاطئ', 'قهوة وحديث', 'أمسية ألعاب'];
 const QUESTIONS = [
@@ -193,6 +194,8 @@ async function dEnd(req, env) {
         .bind(c.r.id, c.u.id, 'أنهينا موعد «' + d.ty + '»' + (d.place ? ' (' + d.place + ')' : '') + ' بعد ' + mins + ' دقيقة', now),
       env.DB.prepare('DELETE FROM date_msgs WHERE date_id=?').bind(id),
     ]);
+    // نقاط الحب: لا تُمنح لموعد أُنهي فور بدئه (منعاً للتلاعب)
+    if (mins >= 3) await award(env, { relId: c.r.id, uid: c.u.id, kind: 'date' });
   }
   // أغلق مسرح الموعد (يُحذف ما في ذاكرته). فشله لا يؤثر على إنهاء الموعد.
   if (env.DATE_SCENE) {

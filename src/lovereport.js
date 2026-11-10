@@ -6,7 +6,7 @@
 // القاعدة: لا يبلّغ إلا طرف في علاقة نشطة، والهدف دائماً هو الشريك نفسه.
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
-import { DAY } from './config.js';
+import { DAY, LOVE_EV_MARK } from './config.js';
 
 const ROOM_PREFIX = 'love:';          // نفس بادئة LOVE_ROOM_PREFIX في love.js (لا استيراد لتفادي الدوران)
 const REASONS = {
@@ -131,7 +131,7 @@ async function lrReport(req, env) {
   // نص البلاغ: «💞 المكان · السبب · ملاحظة المبلّغ · الدليل». الدليل يُقصّ أولاً إن طال.
   const head = '💞 ' + e.where + ' · ' + REASONS[why] + (note ? ' · «' + note + '»' : '');
   const room = Math.max(0, REASON_MAX - head.length - 12);
-  const ev = e.ev ? ' · الدليل: «' + e.ev.slice(0, Math.min(EVID_MAX, room)) + (e.ev.length > Math.min(EVID_MAX, room) ? '…' : '') + '»' : ' · بلا نص محفوظ';
+  const ev = e.ev ? LOVE_EV_MARK + e.ev.slice(0, Math.min(EVID_MAX, room)) + (e.ev.length > Math.min(EVID_MAX, room) ? '…' : '') + '»' : ' · بلا نص محفوظ';
   const reason = (head + ev).slice(0, REASON_MAX);
 
   const ins = await env.DB.prepare('INSERT INTO user_reports(reporter_id,target_id,reason,ctx,ts) VALUES(?,?,?,?,?)')

@@ -9,6 +9,7 @@ import { gestureTables, GEST_WANT, GEST_POST, GEST_GET } from './gestures.js';
 import { memTables, MEM_WANT, MEM_POST, MEM_GET } from './memories.js';
 import { dateTables, DATE_WANT, DATE_POST, DATE_GET } from './dates.js';
 import { lrTables, LR_WANT, LR_POST, LR_GET } from './lovereport.js';
+import { ptsTables, PTS_WANT, PTS_POST, PTS_GET, levelInfo } from './points.js';
 
 export const LOVE_ROOM_PREFIX = 'love:'; // غرفة الحب: love:<id العلاقة>
 export const isLoveRoom = (room) => typeof room === 'string' && room.startsWith(LOVE_ROOM_PREFIX);
@@ -28,6 +29,7 @@ export function loveTables(env) {
     ...memTables(env),
     ...dateTables(env),
     ...lrTables(env),
+    ...ptsTables(env),
   ];
 }
 
@@ -38,6 +40,7 @@ export const LOVE_WANT = {
   ...MEM_WANT,
   ...DATE_WANT,
   ...LR_WANT,
+  ...PTS_WANT,
 };
 
 // ---------- أدوات داخلية ----------
@@ -73,7 +76,7 @@ async function relStatus(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
   const now = Date.now();
-  const [rows, pf, gp, sp] = await env.DB.batch([
+  const rs = await env.DB.batch([
     env.DB.prepare(
       'SELECT r.id,r.user_a,r.status,r.started_at,p.id pid,p.name pname FROM relationships r ' +
       'JOIN users p ON p.id=CASE WHEN r.user_a=? THEN r.user_b ELSE r.user_a END ' +
@@ -82,11 +85,13 @@ async function relStatus(req, env) {
     env.DB.prepare('SELECT auto_accept,full_screen,sound,reduce_motion,paused FROM rel_prefs WHERE user_id=?').bind(u.id),
     env.DB.prepare('SELECT accept FROM gesture_prefs WHERE user_id=?').bind(u.id),
     env.DB.prepare('SELECT personal_space FROM scene_prefs WHERE user_id=?').bind(u.id),
+    env.DB.prepare("SELECT pts FROM rel_points WHERE rel_id=(SELECT id FROM relationships WHERE status='active' AND (user_a=? OR user_b=?) ORDER BY id DESC LIMIT 1)").bind(u.id, u.id),
   ]);
+  const [rows, pf, gp, sp, pp] = rs;
   const out = { ok: true, active: null, incoming: [], outgoing: [], prefs: { ...PREF_DEFAULTS, ...(pf.results[0] || {}), gest_ok: gp.results[0] ? gp.results[0].accept : 1, personal_space: sp.results[0] ? sp.results[0].personal_space : 0 } };
   for (const r of rows.results) {
     const item = { id: r.id, partner: { id: r.pid, name: r.pname } };
-    if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at, room: LOVE_ROOM_PREFIX + r.id }; }
+    if (r.status === 'active') { if (!out.active) out.active = { ...item, since: r.started_at, room: LOVE_ROOM_PREFIX + r.id, pts: pp.results[0] ? pp.results[0].pts : 0, level: levelInfo(pp.results[0] ? pp.results[0].pts : 0) }; }
     else if (r.user_a === u.id) out.outgoing.push(item);
     else out.incoming.push(item);
   }
@@ -225,10 +230,11 @@ export const REL_POST = {
   ...MEM_POST,
   ...DATE_POST,
   ...LR_POST,
+  ...PTS_POST,
   '/api/rel/request': relRequest,
   '/api/rel/accept': relAccept,
   '/api/rel/decline': relDecline,
   '/api/rel/end': relEnd,
   '/api/rel/prefs': relPrefs,
 };
-export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET, ...MEM_GET, ...DATE_GET, ...LR_GET };
+export const REL_GET = { '/api/rel/status': relStatus, ...GEST_GET, ...MEM_GET, ...DATE_GET, ...LR_GET, ...PTS_GET };
