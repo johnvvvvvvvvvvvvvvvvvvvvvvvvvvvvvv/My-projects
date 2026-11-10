@@ -14,6 +14,7 @@ import {
   NAME_OK, RESERVED, DAY, ROOMS, KEEP, ONLINE_MS, MAX_TEXT, HISTORY, TMP_OK,
   PM_HISTORY, MAX_FRIENDS, MAX_IGNORES, EDIT_MS, EMOJI, LVN, lvOf, lvBase,
   pwOf, capOf, canMod, DEBUG, WS_ROOMS, WS_PAYLOAD, PRES_WRITE_MS,
+  LOVE_EV_MARK, LOVE_EV_MIN_RANK, canSeeLoveEvidence,
 } from './src/config.js';
 import { json, serverError, readBody } from './src/http.js';
 import { ensureDatabase, cleanup } from './src/database.js';
@@ -23,6 +24,7 @@ import {
 } from './src/security.js';
 import { shopState, settingsGet, bannerImg, SHOP_POST } from './src/store.js';
 import { REL_POST, REL_GET, loveGuard, isLoveRoom } from './src/love.js';
+import { award } from './src/points.js';
 
 // المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
 export { Room } from './src/room.js';
@@ -874,11 +876,25 @@ async function modReports(req, env, url) {
   const w = [], a = [];
   w.push(g.u.role === 'owner' && url.searchParams.get('h') === '1' ? 'r.hidden=1' : 'r.hidden=0');
   if (st === 'open') w.push('r.done=0'); else if (st === 'done') w.push('r.done=1');
-  if (q) { w.push('(r.reason LIKE ?' + LK + ' OR tu.name LIKE ?' + LK + ' OR ru.name LIKE ?' + LK + ')'); const l = likeArg(q); a.push(l, l, l); }
+  // أدلة بلاغات الارتباط يراها مستوى 95 فما فوق فقط. غيرهم يرون البلاغ بلا نص الدليل،
+  // ولا يصلون إليه بالبحث أيضاً (يُبحث في رأس البلاغ قبل فاصل الدليل فقط).
+  const evOk = canSeeLoveEvidence(g.u);
+  const evMark = LOVE_EV_MARK.replace(/'/g, "''");
+  const reasonCol = evOk ? 'r.reason'
+    : "(CASE WHEN r.ctx='love' AND instr(r.reason,'" + evMark + "')>0 THEN substr(r.reason,1,instr(r.reason,'" + evMark + "')-1) ELSE r.reason END)";
+  if (q) { w.push('(' + reasonCol + ' LIKE ?' + LK + ' OR tu.name LIKE ?' + LK + ' OR ru.name LIKE ?' + LK + ')'); const l = likeArg(q); a.push(l, l, l); }
   if (before) { w.push('r.id<?'); a.push(before); }
   const rows = (await env.DB.prepare('SELECT r.id,r.reason,r.ctx,r.ts,r.done,r.reporter_id,r.target_id,ru.name rname,tu.name tname,(SELECT COUNT(*) FROM user_reports x WHERE x.target_id=r.target_id AND x.done=0 AND x.hidden=0) open_n FROM user_reports r LEFT JOIN users ru ON ru.id=r.reporter_id LEFT JOIN users tu ON tu.id=r.target_id'
     + (w.length ? ' WHERE ' + w.join(' AND ') : '') + ' ORDER BY r.id DESC LIMIT 51').bind(...a).all()).results;
-  return json({ rows: rows.slice(0, 50), more: rows.length > 50 });
+  const out = rows.slice(0, 50);
+  if (!evOk) {
+    for (const x of out) {
+      if (x.ctx !== 'love') continue;
+      const i = String(x.reason || '').indexOf(LOVE_EV_MARK);
+      if (i >= 0) { x.reason = x.reason.slice(0, i) + ' · الدليل: 🔒 محجوب (يراه مشرفو الرتبة ' + LOVE_EV_MIN_RANK + ' فما فوق)'; x.ev_hidden = 1; }
+    }
+  }
+  return json({ rows: out, more: rows.length > 50, ev_ok: evOk });
 }
 
 async function modReportDone(req, env) {
@@ -1482,6 +1498,8 @@ async function postMsg(req, env) {
     .bind(room, u.id, u.name, text, rn, rt, rid, now, kind, pl, 0).run();
   await env.DB.prepare(PRESENCE_UPSERT).bind(u.id, room, now, PRES_WRITE_MS).run();
   if (!kind) await env.DB.prepare('INSERT INTO user_stats(user_id,msgs) VALUES(?,1) ON CONFLICT(user_id) DO UPDATE SET msgs=msgs+1').bind(u.id).run();
+  // نقاط الحب: رسالة عادية في غرفة الحب (رقم العلاقة من اسم الغرفة، وloveGuard تحقق أنه طرف فيها)
+  if (!kind && isLoveRoom(room)) await award(env, { relId: parseInt(room.slice(5), 10), uid: u.id, kind: 'lmsg' });
   await cleanup(env);
   return json({ ok: true, id: ins.meta.last_row_id, ts: now, kind });
 }
