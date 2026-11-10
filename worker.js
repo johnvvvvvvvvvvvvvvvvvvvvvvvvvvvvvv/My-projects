@@ -26,6 +26,9 @@ import { REL_POST, REL_GET, loveGuard, isLoveRoom } from './src/love.js';
 
 // المرحلة 1 (ويب سوكيت): تصدير كائن الغرفة. غير مستخدم في أي مسار بعد.
 export { Room } from './src/room.js';
+// مسرح الموعد الحي: كائن لكل موعد + بوابة التحقق (المسار /api/date/scene)
+import { sceneConnect } from './src/scene.js';
+export { DateScene } from './src/scene.js';
 
 
 async function register(req, env, ip) {
@@ -2678,6 +2681,7 @@ export default {
     const url = new URL(req.url);
     try {
       if (url.pathname === '/api/ws') return await wsConnect(req, env, url);
+      if (url.pathname === '/api/date/scene') { await ensureSchema(env); return await sceneConnect(req, env, url); }
       if (req.method === 'GET' && url.pathname === '/api/ws/rooms') return json({ rooms: env.ROOM ? WS_ROOMS : [] });
     } catch (e) {
       return serverError(e, url.pathname);

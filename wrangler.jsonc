@@ -16,7 +16,13 @@
     }
   ],
   "durable_objects": {
-    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+    "bindings": [
+      { "name": "ROOM", "class_name": "Room" },
+      { "name": "DATE_SCENE", "class_name": "DateScene" }
+    ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["Room"] }]
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["Room"] },
+    { "tag": "v2", "new_sqlite_classes": ["DateScene"] }
+  ]
 }
