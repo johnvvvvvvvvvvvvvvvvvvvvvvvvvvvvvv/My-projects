@@ -1299,9 +1299,6 @@ if(!canRank(me,t)||!(v>=0&&v<=cap(me))){alert('الرتبة المسموح لك 
 soc('mod/rank',{target:t.id,rank:v},function(r){if(!(r.j&&r.j.ok)){toast('⚠️ '+((r.j&&r.j.error)||'تعذر تغيير الرتبة'));return}
 _setRank(t,v);if(t.role==='member'&&t.rank!==o){var g2=_eff(t)==='genmod',tx=null;if(g2&&!g)tx=t.name+' حصل تلقائياً على لقب مشرف عام (الرتبة '+t.rank+')';else if(g&&!g2&&t.rank<91)tx=t.name+' فقد لقب مشرف عام (الرتبة '+t.rank+')';if(tx){addLog(tx);toast('🛡 '+tx);drawUsers()}}})};
 /* حالة الكتم وسحب الصلاحيات تأتي من الخادم لكل المستخدمين */
-function applySx(sx){if(!sx)return;var mm={},rv={};sx.forEach(function(x){if(x.k==='mute')mm[x.id]=x;else rv[x.id]=x});
-users.forEach(function(u){var a=mm[u.id],b=rv[u.id];u.muted=!!a;u.mu=a&&a.until?a.until:0;
-u.susp=b?{by:b.by,byName:b.byName,reason:b.reason,until:b.until?b.until:Infinity,bp:b.bp}:null});drawUsers()}
 /* سحب الصلاحيات وإعادتها (كانا في القائمة القديمة فقط) */
 ACT.push({k:'revoke',e:'⛔',l:'سحب الصلاحيات',t:2,ok:function(u){return can(me,u,4)&&lv(u)>=2&&!susp(u)},v:function(t){
 ask('سحب صلاحيات '+t.name,[{k:'r',l:'السبب',ch:RS},{k:'d',l:'المدة بالدقائق (0 = حتى الإعادة يدوياً)',t:'number',v:60,ch:DS}],function(o){

@@ -41,8 +41,8 @@
     box.setAttribute('role', 'dialog'); box.setAttribute('aria-modal', 'true');
     box.appendChild(node('b', 'font-size:17px', '🚩 إبلاغ عن ' + (WHAT[kind] || 'شريكك')));
     box.appendChild(node('div', 'font-size:13px;color:var(--mu,#566070);line-height:1.6',
-      'سيصل البلاغ إلى الإدارة مع نص ' + (kind === 'partner' ? 'آخر رسائل شريكك في غرفة الحب' : kind === 'date' ? 'ما كتبه شريكك في هذا الموعد' : 'المحتوى المبلَّغ عنه') +
-      '، ولا يراه شريكك. لا نبلغ عن شخص لمجرد الخلاف: اختر السبب الأقرب.'));
+      'سيصل البلاغ إلى الإدارة. نص ' + (kind === 'partner' ? 'آخر رسائل شريكك في غرفة الحب' : kind === 'date' ? 'ما كتبه شريكك في هذا الموعد' : 'المحتوى المبلَّغ عنه') +
+      ' لا يراه إلا المشرفون الكبار، ولا يراه شريكك. لا نبلغ عن شخص لمجرد الخلاف: اختر السبب الأقرب.'));
 
     var list = node('div', 'display:flex;flex-direction:column;gap:4px');
     var chosen = '';
