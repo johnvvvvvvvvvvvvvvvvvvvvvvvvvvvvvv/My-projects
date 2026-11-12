@@ -603,6 +603,7 @@ function dtDinnerTable(g, W, H, s, kd) {      // الزجاجة والكؤوس �
     G = DT.gl[id];
     d = DT.gd[id]; if (d == null) d = G.lv;
     d += (G.lv - d) * Math.min(1, kd * 4); DT.gd[id] = d;
+    dtFoodPlate(g, W, H, s, +id, G, kd);
     if (!G.h) {
       var gx = dtGlTx(+id) * W;
       g.fillStyle = 'rgba(0,0,0,.22)'; g.beginPath(); g.ellipse(gx, H * 0.415 + 1, s * 0.1, s * 0.03, 0, 0, 7); g.fill();
@@ -637,6 +638,7 @@ function dtDinnerFx(cx, W, H) {               // الكؤوس الممسوكة �
     dtGlass(cx, hd[0], hd[1] + s * 0.04, s * 0.36, dl == null ? 0 : dl, k.tilt || 0, gk && gk.dk);
   });
   cx.globalAlpha = 1;
+  dtEatFx(cx, W, H, s);
   if (P && !DT.still && now < P.until && DT.bn) {
     var u = (now - P.t0) / (P.until - P.t0), tp = dtGlassPos(P.to, W, H, s);
     if (tp && u > 0.2 && u < 0.95) {
@@ -664,51 +666,373 @@ function dtGlEv(j) {                          // حدث من الخادم: رش�
   var now = Date.now();
   if (j.ev === 'sip') DT.gfx[j.by] = { k: 'sip', t0: now, until: now + 2000 };
   else if (j.ev === 'toast') { DT.gfx[j.by] = DT.gfx[j.to] = { k: 'toast', t0: now, until: now + 2200 }; dtFlash('🥂 نخب!'); }
+  else if (j.ev === 'serve') { DT.sv = DT.sv || {}; DT.sv[j.to] = now; if (DT_FOOD[j.fd]) dtFlash(DT_FOOD[j.fd].e + ' ' + DT_FOOD[j.fd].n); }
+  else if (j.ev === 'bite') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'bite', t0: now, until: now + 1800 }; }
+  else if (j.ev === 'feed') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'feed', to: j.to, t0: now, until: now + 2400 }; dtFlash('🥄 لقمة بحب'); }
   else if (j.ev === 'pour') { DT.pour = { to: j.to, t0: now, until: now + 1300 }; if (DT_DR[j.dk]) dtFlash(DT_DR[j.dk].e + ' ' + DT_DR[j.dk].n); }
 }
 
-// قائمة المشروبات: تبويبات للأقسام، وأزرار للأنواع، واختيار «لي» أو «لشريكي»
+/* ---------- المرحلة 3d: الطعام (طبق لكل شخص، الأكل بحركة، إطعام الشريك) ---------- */
+/* الاسم n، الرمز e، الوصف d، hot يخرج منه بخار، cd عليه شمعة صغيرة */
+var DT_FOOD = {
+  lentil:   { n: 'شوربة عدس', e: '🍲', d: 'كريمية بالليمون والكمون', hot: 1 },
+  salad:    { n: 'سلطة سيزر', e: '🥗', d: 'خس مقرمش وجبن وصلصة خفيفة' },
+  hummus:   { n: 'حمص بالطحينة', e: '🥙', d: 'بزيت الزيتون والخبز' },
+  garlic:   { n: 'خبز بالثوم', e: '🥖', d: 'ساخن بالزبدة والثوم', hot: 1 },
+  samosa:   { n: 'سمبوسة مقرمشة', e: '🥟', d: 'محشوة بالجبن والخضار', hot: 1 },
+  steak:    { n: 'ستيك مشوي', e: '🥩', d: 'مع صلصة الفلفل والبطاطس', hot: 1 },
+  pasta:    { n: 'باستا بالكريمة', e: '🍝', d: 'بالدجاج والفطر', hot: 1 },
+  chicken:  { n: 'دجاج مشوي', e: '🍗', d: 'متبّل بالأعشاب والليمون', hot: 1 },
+  fish:     { n: 'سمك مشوي', e: '🐟', d: 'مع الأرز والخضار', hot: 1 },
+  kabsa:    { n: 'كبسة لحم', e: '🍛', d: 'أرز بالبهارات وصلصة الدقوس', hot: 1 },
+  cake:     { n: 'كيكة الفراولة', e: '🍰', d: 'بالكريمة وشمعة صغيرة', cd: 1 },
+  icecream: { n: 'آيس كريم', e: '🍨', d: 'ثلاث كرات بنكهات مختلفة' },
+  fondant:  { n: 'فوندان شوكولاتة', e: '🍫', d: 'دافئ بقلب سائل', hot: 1, cd: 1 },
+  flan:     { n: 'كريم كراميل', e: '🍮', d: 'ناعم بصلصة الكراميل' },
+  berries:  { n: 'فراولة بالشوكولاتة', e: '🍓', d: 'مغمّسة بالشوكولاتة الذائبة' }
+};
+var DT_FCATS = [
+  ['🥗 المقبلات', ['lentil', 'salad', 'hummus', 'garlic', 'samosa']],
+  ['🍽️ الأطباق الرئيسية', ['steak', 'pasta', 'chicken', 'fish', 'kabsa']],
+  ['🍰 الحلويات', ['cake', 'icecream', 'fondant', 'flan', 'berries']]
+];
+function dtPlateXY(id, W, H) {                 // مكان الطبق: فوق الصحن الأبيض المرسوم في الخلفية
+  return { x: (dtChairIdx(id) === 0 ? 0.43 : 0.57) * W, y: H * 0.395 };
+}
+function dtMouth(id, W, H, s) {                // فم صاحب المعرّف (تقريباً) لحركة الشوكة
+  var role = dtRole(id), c = DT.ch[role], o = DT.ch[role === 'm' ? 'p' : 'm'];
+  if (!c || (role === 'p' && !c.here)) return null;
+  var sit = c.sit || 0, sd = sit > 0.5 ? (c.sdir || 1) : ((o.x == null ? 0.5 : o.x) >= c.x ? 1 : -1);
+  return { x: c.x * DT.sw + sd * s * 0.17, y: c.y * DT.sh - s * 1.36 + sit * s * 0.36 };
+}
+function dtFoodPlate(g, W, H, s, id, G, kd) {  // الطعام على الطبق: يصغر مع كل لقمة، بخار للساخن، وشمعة للحلوى
+  var F = DT_FOOD[G.fd]; if (!F) return;
+  var pp = dtPlateXY(id, W, H), now = Date.now(), tg = G.fb | 0, v;
+  DT.fa = DT.fa || {}; DT.sv = DT.sv || {};
+  v = DT.fa[id]; if (v == null) v = tg;
+  v += (tg - v) * Math.min(1, kd * 5); DT.fa[id] = v;
+  var fs = Math.min(W * 0.055, s * 0.34), pop = 1, t0 = DT.sv[id];
+  if (t0 && !DT.still) { var u = (now - t0) / 600; if (u < 1) pop = u < 0.6 ? u / 0.6 * 1.2 : 1.2 - (u - 0.6) / 0.4 * 0.2; }
+  if (v > 0.05) {
+    g.save();
+    g.globalAlpha = Math.min(1, v + 0.3);
+    g.font = Math.round(fs * (0.5 + 0.5 * v / 3) * pop) + 'px sans-serif';
+    g.textAlign = 'center'; g.textBaseline = 'middle';
+    g.fillText(F.e, pp.x, pp.y - fs * 0.28);
+    g.restore();
+    if (F.hot && v > 0.5 && !DT.still) {
+      g.save();
+      for (var i = 0; i < 2; i++) {
+        var q = (now / 1100 + i * 0.5) % 1;
+        g.globalAlpha = (1 - q) * 0.45; g.fillStyle = '#fff';
+        g.beginPath(); g.arc(pp.x + (i ? 1 : -1) * fs * 0.2 + Math.sin(q * 6.3) * fs * 0.1, pp.y - fs * 0.6 - q * fs * 0.9, fs * (0.06 + q * 0.07), 0, 7); g.fill();
+      }
+      g.restore();
+    }
+    if (F.cd && tg === 3) {                    // شمعة صغيرة على الحلوى الجديدة
+      var cx0 = pp.x + fs * 0.12, cy0 = pp.y - fs * 0.78;
+      g.fillStyle = '#fef3c7'; g.fillRect(cx0 - 1.5, cy0 - fs * 0.22, 3, fs * 0.26);
+      g.fillStyle = '#fbbf24'; g.beginPath(); g.ellipse(cx0, cy0 - fs * 0.27 + (DT.still ? 0 : Math.sin(now / 90) * 0.8), 2.2, 3.6, 0, 0, 7); g.fill();
+    }
+  } else {                                     // طبق فرغ: فتات صغيرة
+    g.fillStyle = 'rgba(160,110,50,.55)';
+    for (var k2 = 0; k2 < 4; k2++) { g.beginPath(); g.arc(pp.x + (k2 - 1.5) * fs * 0.16, pp.y - fs * 0.02 + (k2 % 2) * fs * 0.05, Math.max(1, fs * 0.04), 0, 7); g.fill(); }
+  }
+}
+function dtEatFx(cx, W, H, s) {                // الشوكة أو الملعقة: من الطبق إلى الفم (للنفس) أو إلى فم الشريك (إطعام)
+  var E = DT.ef, now = Date.now(), id, i;
+  if (!E) return;
+  for (id in E) {
+    var e = E[id];
+    if (now >= e.until) { delete E[id]; continue; }
+    if (DT.still) continue;
+    var u = (now - e.t0) / (e.until - e.t0), from = dtPlateXY(+id, W, H), to = dtMouth(e.k === 'feed' ? e.to : +id, W, H, s);
+    if (!to) continue;
+    var k = u < 0.4 ? u / 0.4 : u < 0.6 ? 1 : 1 - (u - 0.6) / 0.4;
+    k = k * k * (3 - 2 * k);
+    var sd = to.x >= from.x ? 1 : -1, y0 = from.y - s * 0.08;
+    var x = from.x + (to.x - from.x) * k, y = y0 + (to.y - y0) * k;
+    if (e.k === 'feed') y -= Math.sin(Math.PI * k) * s * 0.18;
+    cx.save();
+    cx.lineCap = 'round'; cx.strokeStyle = '#e5e7eb'; cx.fillStyle = '#e5e7eb'; cx.lineWidth = Math.max(1.5, s * 0.025);
+    cx.beginPath(); cx.moveTo(x, y); cx.lineTo(x - sd * s * 0.12, y + s * 0.2); cx.stroke();
+    if (e.k === 'feed') { cx.beginPath(); cx.ellipse(x, y - s * 0.01, s * 0.05, s * 0.032, sd * 0.4, 0, 7); cx.fill(); }
+    else { cx.lineWidth = Math.max(1, s * 0.016); for (i = -1; i <= 1; i++) { cx.beginPath(); cx.moveTo(x + i * s * 0.022, y); cx.lineTo(x + i * s * 0.022, y - s * 0.07); cx.stroke(); } }
+    var G = DT.gl && DT.gl[id], F = G && DT_FOOD[G.fd];
+    if (F && u < 0.5) { cx.font = Math.round(s * 0.13) + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(F.e, x, y - s * 0.09); }
+    cx.restore();
+    if (e.k === 'feed' && u >= 0.4 && !e.h) {  // وصلت اللقمة: قلوب
+      e.h = 1;
+      for (i = 0; i < 6; i++) DT.hearts.push({ x: to.x + (Math.random() - 0.5) * s * 0.3, y: to.y - s * 0.1, vy: 0.06 + Math.random() * 0.06, vx: (Math.random() - 0.5) * 0.04, s: 12 + Math.random() * 12, a: 1 });
+    }
+  }
+}
+
+/* ---------- قائمة العشاء: كتيّب ورقي في منتصف الشاشة بقلب صفحات حقيقي ---------- */
+/* الصفحات (الأوجه) 0..8: 0 ترحيب، 1 مقبلات، 2 رئيسي، 3 حلويات، 4 باردة، 5 ساخنة، 6 غازية، 7 عصائر، 8 ختام.
+   الكتيّب يُفتح من اليمين لليسار: الورقة k وجهها الأمامي 2k+1 وظهرها 2k+2، والوجه 0 ثابت على اليسار.
+   قلب الصفحة: بالسحب أفقياً، أو بلمس زاوية الصفحة، أو بالأسهم/المفاتيح، أو بعلامات الأقسام. */
+function dtBkCss() {
+  if (document.getElementById('dtbkcss')) return;
+  var st = document.createElement('style'); st.id = 'dtbkcss';
+  st.textContent = '@keyframes dtbksh{0%,100%{opacity:0}50%{opacity:.45}}@keyframes dtbkin{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}';
+  document.head.appendChild(st);
+}
 function dtMenu() {
-  var old = DT.root.querySelector('#dtmenu');
+  var old = DT.root.querySelector('#dtbook');
   if (old) { old.remove(); return; }
-  var tgt = 'm', cat = 0;
-  var bar = DT.root.querySelector('#dtbar');
-  var box = dtNode('div', 'position:absolute;left:8px;right:8px;max-width:480px;margin:0 auto;z-index:60;background:#140a12f2;border:1px solid #ffffff33;border-radius:16px;padding:10px;box-shadow:0 6px 24px #000a;backdrop-filter:blur(6px);bottom:' + ((bar ? bar.offsetHeight : 60) + 62) + 'px');
-  box.id = 'dtmenu';
-  function chip(txt, on, fn) {
-    var b = dtNode('button', 'border:1px solid #ffffff44;border-radius:14px;padding:5px 11px;font:inherit;font-size:13px;color:#fff;cursor:pointer;background:' + (on ? '#e11d48' : 'transparent'), txt);
+  dtBkCss();
+  var TOT = 4, sp = 0, tgt = 'm', sel = { food: null, drink: null }, rowsEl = {};
+  var BW = Math.min(innerWidth - 24, 700), BH = Math.max(250, Math.min(440, innerHeight - 190)), PW = BW / 2;
+  var narrow = PW < 250, tiny = BH < 330;
+  var FONT = '"Amiri","Scheherazade New","Noto Naskh Arabic","Traditional Arabic",Georgia,serif';
+  var PAPER = 'background-color:#f6ecd5;background-image:repeating-linear-gradient(0deg,rgba(120,80,20,.035) 0 1px,transparent 1px 3px),radial-gradient(circle at 25% 12%,#fffaf0 0,rgba(255,250,240,0) 55%),radial-gradient(circle at 80% 95%,rgba(190,150,80,.28) 0,rgba(190,150,80,0) 60%);';
+  var TR = 'transform .85s cubic-bezier(.4,.1,.25,1)';
+  var shades = [];
+
+  var ov = dtNode('div', 'position:absolute;inset:0;z-index:70;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:10px;background:rgba(12,4,10,.74);backdrop-filter:blur(4px);padding:8px;box-sizing:border-box');
+  ov.id = 'dtbook';
+  ov.addEventListener('pointerdown', function (e) { e.stopPropagation(); });
+  ov.addEventListener('click', function (e) { if (e.target === ov) close(); });
+  function close() { ov.remove(); document.removeEventListener('keydown', onKey); }
+  function chip(txt, on, fn, css) {
+    var b = dtNode('button', 'border:1px solid #ffffff44;border-radius:14px;padding:5px 12px;font:inherit;font-size:13px;color:#fff;cursor:pointer;background:' + (on ? '#e11d48' : 'rgba(255,255,255,.1)') + ';' + (css || ''), txt);
     b.onclick = fn; return b;
   }
-  function render() {
-    box.textContent = '';
-    var hd = dtNode('div', 'display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap');
-    hd.appendChild(dtNode('b', 'flex:1', '🍹 المشروبات'));
-    hd.appendChild(dtNode('span', 'font-size:12px;opacity:.8', 'لـ'));
-    hd.appendChild(chip('أنا', tgt === 'm', function () { tgt = 'm'; render(); }));
-    hd.appendChild(chip('شريكي', tgt === 'p', function () { tgt = 'p'; render(); }));
-    hd.appendChild(chip('✕', 0, function () { box.remove(); }));
-    box.appendChild(hd);
-    var tb = dtNode('div', 'display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap');
-    DT_CATS.forEach(function (c, i) { tb.appendChild(chip(c[0], i === cat, function () { cat = i; render(); })); });
-    box.appendChild(tb);
-    var gr = dtNode('div', 'display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px');
-    DT_CATS[cat][1].forEach(function (id) {
-      var D = DT_DR[id], tags = (D.fx === 'steam' ? '♨️ ساخن ' : '') + (D.fx === 'fizz' ? '🫧 فوّار ' : '') + (D.ice ? '🧊 مثلج ' : '') + (D.foam ? '☁️ رغوة' : '');
-      var b = dtNode('button', 'border:1px solid #ffffff33;border-radius:12px;padding:8px;font:inherit;color:#fff;cursor:pointer;text-align:center;background:linear-gradient(180deg,' + D.c + '55,' + D.c2 + '88)');
-      b.appendChild(dtNode('div', 'font-size:22px', D.e));
-      b.appendChild(dtNode('div', 'font-size:14px', D.n));
-      b.appendChild(dtNode('div', 'font-size:11px;opacity:.85;min-height:14px', tags));
-      b.onclick = function () {
-        if (tgt === 'p' && !DT.ch.p.here) { dtFlash('شريكك غير موجود في المسرح الآن'); return; }
-        dtWsSend({ t: tgt === 'm' ? 'gfill' : 'gfillp', d: id });
-        box.remove();
-      };
-      gr.appendChild(b);
-    });
-    box.appendChild(gr);
+
+  function orn() { return dtNode('div', 'text-align:center;color:#a67c3d;font-size:' + (tiny ? 12 : 15) + 'px;letter-spacing:5px;margin:' + (tiny ? '2px' : '4px') + ' 0', '— ❦ —'); }
+  function mark(kind, id, on) {
+    var r = rowsEl[kind + ':' + id]; if (!r) return;
+    r.p.style.strokeDashoffset = on ? '0' : '1';
+    r.t.style.opacity = on ? '1' : '0';
   }
-  render();
-  DT.root.appendChild(box);
+  function pick(kind, id) {
+    var prev = sel[kind];
+    if (prev) mark(kind, prev, false);
+    if (prev === id) sel[kind] = null; else { sel[kind] = id; mark(kind, id, true); }
+    summ();
+  }
+  function row(kind, id, e, n, d, tags) {
+    var r = dtNode('button', 'position:relative;display:flex;align-items:center;gap:7px;width:100%;text-align:right;background:transparent;border:0;border-bottom:1px dotted rgba(140,100,40,.45);padding:' + (tiny ? '3px 4px' : '6px 4px') + ';font:inherit;color:inherit;cursor:pointer;direction:rtl');
+    r.appendChild(dtNode('span', 'font-size:' + (tiny ? 18 : 22) + 'px;line-height:1', e));
+    var col = dtNode('span', 'display:flex;flex-direction:column;flex:1;min-width:0');
+    col.appendChild(dtNode('span', 'font-weight:700;font-size:' + (narrow ? 13 : 15) + 'px;line-height:1.25', n));
+    if (!narrow && !tiny && d) col.appendChild(dtNode('span', 'font-size:12px;opacity:.75;line-height:1.25', d));
+    if (tags) col.appendChild(dtNode('span', 'font-size:10.5px;color:#8a5a1c;line-height:1.2', tags));
+    r.appendChild(col);
+    var tick = dtNode('span', 'color:#b91c1c;font-weight:700;font-size:16px;opacity:0;transition:opacity .25s', '✔');
+    r.appendChild(tick);
+    var pen = dtNode('span', 'position:absolute;inset:-1px;pointer-events:none');
+    pen.innerHTML = '<svg viewBox="0 0 100 40" preserveAspectRatio="none" width="100%" height="100%"><path d="M95 9C88-2 22-4 7 13C-2 27 30 40 60 38C92 36 102 22 93 8" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" style="transition:stroke-dashoffset .5s ease"/></svg>';
+    r.appendChild(pen);
+    rowsEl[kind + ':' + id] = { p: pen.firstChild.firstChild, t: tick };
+    r.onclick = function () { pick(kind, id); };
+    return r;
+  }
+  function page(title, rows, num) {
+    var wr = dtNode('div', 'display:flex;flex-direction:column;height:100%');
+    wr.appendChild(dtNode('div', 'text-align:center;font-weight:700;font-size:' + (narrow ? 16 : 19) + 'px;color:#7a1f3d;line-height:1.3', title));
+    wr.appendChild(orn());
+    var list = dtNode('div', 'display:flex;flex-direction:column;flex:1;min-height:0;overflow:hidden');
+    rows.forEach(function (r) { list.appendChild(r); });
+    wr.appendChild(list);
+    if (num) wr.appendChild(dtNode('div', 'text-align:center;font-size:11px;color:#a67c3d;opacity:.8', '· ' + num + ' ·'));
+    return wr;
+  }
+  function drinkRows(ci) {
+    return DT_CATS[ci][1].map(function (id) {
+      var D = DT_DR[id], tg = (D.fx === 'steam' ? '♨️ ساخن ' : '') + (D.fx === 'fizz' ? '🫧 فوّار ' : '') + (D.ice ? '🧊 مثلج ' : '') + (D.foam ? '☁️ رغوة' : '');
+      return row('drink', id, D.e, D.n, '', tg);
+    });
+  }
+  function foodRows(ci) {
+    return DT_FCATS[ci][1].map(function (id) {
+      var F = DT_FOOD[id];
+      return row('food', id, F.e, F.n, F.d, (F.hot ? '♨️ ساخن ' : '') + (F.cd ? '🕯️ بشمعة' : ''));
+    });
+  }
+  function content(i) {
+    if (i === 0) {
+      var w0 = dtNode('div', 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;gap:' + (tiny ? 4 : 8) + 'px');
+      w0.appendChild(dtNode('div', 'font-size:' + (tiny ? 28 : 40) + 'px', '🕯️'));
+      w0.appendChild(dtNode('div', 'font-weight:700;font-size:' + (narrow ? 19 : 24) + 'px;color:#7a1f3d', 'عشاء الليلة'));
+      w0.appendChild(orn());
+      w0.appendChild(dtNode('div', 'font-size:' + (narrow ? 12 : 14) + 'px;line-height:1.6;opacity:.85;padding:0 6px', 'اقلبا الصفحة وانتقيا ما يطيب لكما. ضع علامة ✔ على ما تشتهي ثم اضغط «اطلب».'));
+      return w0;
+    }
+    if (i >= 1 && i <= 3) return page(DT_FCATS[i - 1][0], foodRows(i - 1), i);
+    if (i >= 4 && i <= 7) return page(DT_CATS[i - 4][0], drinkRows(i - 4), i);
+    if (i === 8) {
+      var w8 = dtNode('div', 'display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;text-align:center;gap:' + (tiny ? 4 : 8) + 'px');
+      w8.appendChild(dtNode('div', 'font-size:' + (tiny ? 28 : 40) + 'px', '🤍'));
+      w8.appendChild(dtNode('div', 'font-weight:700;font-size:' + (narrow ? 18 : 22) + 'px;color:#7a1f3d', 'بالهناء والشفاء'));
+      w8.appendChild(orn());
+      w8.appendChild(dtNode('div', 'font-size:' + (narrow ? 12 : 14) + 'px;opacity:.85', 'أمسية جميلة لكما'));
+      return w8;
+    }
+    return dtNode('div');
+  }
+  function face(i, extra) {                      // وجه ورقة: ورق + ظل عند الكعب + طبقة ظل أثناء القلب
+    var f = dtNode('div', 'position:absolute;inset:0;overflow:hidden;box-sizing:border-box;direction:rtl;color:#4a2f12;font-family:' + FONT + ';' + PAPER + 'padding:' + (tiny ? '8px 10px' : '14px 14px') + ';-webkit-backface-visibility:hidden;backface-visibility:hidden;' + (extra || ''));
+    f.appendChild(content(i));
+    var odd = i % 2 === 1;
+    f.appendChild(dtNode('div', 'position:absolute;inset:0;pointer-events:none;background:linear-gradient(' + (odd ? '90deg' : '270deg') + ',rgba(60,30,0,.30),rgba(60,30,0,0) 16%)'));
+    var sh = dtNode('div', 'position:absolute;inset:0;pointer-events:none;background:#2a1204;opacity:0');
+    f.appendChild(sh); shades.push(sh);
+    return f;
+  }
+
+  // ---- العلامات (تنقل بين الأقسام)
+  var tabs = dtNode('div', 'display:flex;gap:6px;flex-wrap:wrap;justify-content:center');
+  var TABS = [['🥗 مقبلات', 1], ['🍽️ رئيسي', 2], ['🍰 حلويات', 3], ['🍹 مشروبات', 4]], tabEl = [];
+  TABS.forEach(function (t) {
+    var b = dtNode('button', 'border:1px solid #c9a56a;border-bottom:0;border-radius:10px 10px 0 0;padding:5px 12px;font:inherit;font-size:13px;cursor:pointer;color:#5b3a12;background:#f3e3c3', t[0]);
+    b.onclick = function () { go(Math.floor(t[1] / 2)); };
+    tabEl.push(b); tabs.appendChild(b);
+  });
+  ov.appendChild(tabs);
+
+  // ---- الكتيّب
+  var shell = dtNode('div', 'position:relative;width:' + BW + 'px;height:' + BH + 'px;animation:dtbkin .45s ease both');
+  shell.appendChild(dtNode('div', 'position:absolute;inset:-8px -10px;border-radius:9px;background:linear-gradient(135deg,#6b1d2f,#3d0f1b);box-shadow:0 18px 50px rgba(0,0,0,.65),inset 0 0 0 2px rgba(253,230,138,.25)'));
+  var book = dtNode('div', 'position:absolute;inset:0;direction:ltr;perspective:1700px;touch-action:pan-y;user-select:none;-webkit-user-select:none');
+  var bl = dtNode('div', 'position:absolute;left:0;top:0;width:50%;height:100%;box-shadow:-2px 0 0 #e8dbbc,-4px 0 0 #d6c6a1');
+  bl.appendChild(face(0));
+  var br = dtNode('div', 'position:absolute;left:50%;top:0;width:50%;height:100%;box-shadow:2px 0 0 #e8dbbc,4px 0 0 #d6c6a1,6px 0 0 #cbb98f');
+  br.appendChild(face(9));
+  book.appendChild(bl); book.appendChild(br);
+  var leaves = [];
+  for (var k = 0; k < TOT; k++) {
+    var lf = dtNode('div', 'position:absolute;left:50%;top:0;width:50%;height:100%;transform-origin:left center;transform-style:preserve-3d;transition:' + TR + ';z-index:' + (20 - k));
+    lf.appendChild(face(2 * k + 1));
+    lf.appendChild(face(2 * k + 2, 'transform:rotateY(180deg);'));
+    leaves.push(lf); book.appendChild(lf);
+  }
+  book.appendChild(dtNode('div', 'position:absolute;top:0;bottom:0;left:calc(50% - 14px);width:28px;z-index:500;pointer-events:none;background:linear-gradient(90deg,rgba(40,20,0,0),rgba(40,20,0,.22) 42%,rgba(40,20,0,.38) 50%,rgba(40,20,0,.22) 58%,rgba(40,20,0,0))'));
+  var cr = dtNode('div', 'position:absolute;right:0;bottom:0;width:36px;height:36px;z-index:600;cursor:pointer;background:linear-gradient(135deg,transparent 50%,#cdb98a 50%,#fbf1d6 100%);border-top-left-radius:100%;box-shadow:-2px -2px 5px rgba(0,0,0,.28)');
+  var cl = dtNode('div', 'position:absolute;left:0;bottom:0;width:36px;height:36px;z-index:600;cursor:pointer;background:linear-gradient(225deg,transparent 50%,#cdb98a 50%,#fbf1d6 100%);border-top-right-radius:100%;box-shadow:2px -2px 5px rgba(0,0,0,.28)');
+  cr.onclick = function () { go(sp + 1); }; cl.onclick = function () { go(sp - 1); };
+  book.appendChild(cr); book.appendChild(cl);
+  shell.appendChild(book); ov.appendChild(shell);
+
+  // ---- الشريط السفلي
+  var nav = dtNode('div', 'display:flex;gap:8px;align-items:center;justify-content:center');
+  var bPrev = chip('→ السابق', 0, function () { go(sp - 1); });
+  var ind = dtNode('span', 'color:#fff;font-size:12px;opacity:.8;min-width:48px;text-align:center');
+  var bNext = chip('التالي ←', 0, function () { go(sp + 1); });
+  nav.appendChild(bPrev); nav.appendChild(ind); nav.appendChild(bNext); ov.appendChild(nav);
+  var bar = dtNode('div', 'display:flex;gap:8px;align-items:center;justify-content:center;flex-wrap:wrap;max-width:' + BW + 'px');
+  var summEl = dtNode('div', 'color:#fde68a;font-size:13px;text-align:center;min-height:18px;width:100%');
+  var chM = chip('لي', 1, function () { tgt = 'm'; sty(); }), chP = chip('لشريكي', 0, function () { tgt = 'p'; sty(); });
+  var bGo = chip('🛎️ اطلب', 1, order, 'padding:7px 18px;font-weight:700');
+  var bX = chip('✕', 0, close);
+  bar.appendChild(summEl); bar.appendChild(chM); bar.appendChild(chP); bar.appendChild(bGo); bar.appendChild(bX);
+  ov.appendChild(bar);
+
+  function sty() { chM.style.background = tgt === 'm' ? '#e11d48' : 'rgba(255,255,255,.1)'; chP.style.background = tgt === 'p' ? '#e11d48' : 'rgba(255,255,255,.1)'; }
+  function summ() {
+    var p = [];
+    if (sel.food) p.push(DT_FOOD[sel.food].e + ' ' + DT_FOOD[sel.food].n);
+    if (sel.drink) p.push(DT_DR[sel.drink].e + ' ' + DT_DR[sel.drink].n);
+    summEl.textContent = p.length ? p.join('  +  ') : 'ضع علامة ✔ على ما تشتهي';
+    bGo.style.opacity = p.length ? '1' : '.45';
+  }
+  function order() {
+    if (!sel.food && !sel.drink) { dtFlash('اختر شيئاً من القائمة أولاً'); return; }
+    if (!DT.wsOk) { dtFlash('غير متصل بالمسرح'); return; }
+    if (dtDist(DT.ch.m, DT_TBL) > DT_REACH.table) { dtFlash('اقترب من الطاولة لتطلب'); return; }
+    if (tgt === 'p' && !DT.ch.p.here) { dtFlash('شريكك غير موجود في المسرح الآن'); return; }
+    var q = [];
+    if (sel.drink) q.push({ t: tgt === 'm' ? 'gfill' : 'gfillp', d: sel.drink });
+    if (sel.food) q.push({ t: tgt === 'm' ? 'fserve' : 'fservep', d: sel.food });
+    q.forEach(function (o, i) { setTimeout(function () { dtWsSend(o); }, i * 480); });
+    close();
+  }
+
+  // ---- قلب الصفحات
+  function zFix(lf, kk) { lf.style.zIndex = kk < sp ? 10 + kk : 20 - kk; }
+  function apply() {
+    leaves.forEach(function (lf, kk) {
+      lf.style.transform = 'rotateY(' + (kk < sp ? -180 : 0) + 'deg)';
+      zFix(lf, kk);
+    });
+    cr.style.display = sp < TOT ? 'block' : 'none';
+    cl.style.display = sp > 0 ? 'block' : 'none';
+    bPrev.style.opacity = sp > 0 ? '1' : '.4'; bNext.style.opacity = sp < TOT ? '1' : '.4';
+    ind.textContent = (sp + 1) + ' / ' + (TOT + 1);
+    tabEl.forEach(function (b, i) {
+      var t = TABS[i][1], on = i === 3 ? (sp === 2 || sp === 3) : Math.floor(t / 2) === sp;
+      b.style.background = on ? '#fff4d6' : '#f3e3c3'; b.style.fontWeight = on ? '700' : '400'; b.style.color = on ? '#7a1f3d' : '#5b3a12';
+    });
+  }
+  function flashShade(lf) {                       // ظل يمرّ على الورقة وهي تنقلب
+    if (DT.still) return;
+    for (var c = 0; c < lf.children.length; c++) {
+      var sh = lf.children[c].lastChild;
+      sh.style.animation = 'none'; void sh.offsetWidth; sh.style.animation = 'dtbksh .85s ease';
+    }
+  }
+  function go(n) {
+    n = Math.max(0, Math.min(TOT, n));
+    if (n === sp) return;
+    (function step() {
+      if (sp === n) return;
+      var dir = n > sp ? 1 : -1, kk = dir > 0 ? sp : sp - 1, lf = leaves[kk];
+      lf.style.zIndex = 100;
+      sp += dir;
+      lf.style.transform = 'rotateY(' + (dir > 0 ? -180 : 0) + 'deg)';
+      flashShade(lf);
+      setTimeout(function () { zFix(lf, kk); }, 880);
+      cr.style.display = sp < TOT ? 'block' : 'none'; cl.style.display = sp > 0 ? 'block' : 'none';
+      bPrev.style.opacity = sp > 0 ? '1' : '.4'; bNext.style.opacity = sp < TOT ? '1' : '.4';
+      ind.textContent = (sp + 1) + ' / ' + (TOT + 1);
+      if (sp !== n) setTimeout(step, 240); else apply();
+    })();
+  }
+  var drag = null, swallow = 0;
+  book.addEventListener('pointerdown', function (e) {
+    if (e.button > 0) return;
+    var rc = book.getBoundingClientRect(), right = e.clientX >= rc.left + rc.width / 2;
+    if (right && sp < TOT) drag = { k: sp, dir: 1 }; else if (!right && sp > 0) drag = { k: sp - 1, dir: -1 }; else { drag = null; return; }
+    drag.x0 = e.clientX; drag.on = 0; drag.p = 0; drag.id = e.pointerId;
+  });
+  book.addEventListener('pointermove', function (e) {
+    if (!drag || e.pointerId !== drag.id) return;
+    var dx = e.clientX - drag.x0, v = -drag.dir * dx;
+    if (!drag.on) {
+      if (Math.abs(dx) < 9 || v <= 0) return;
+      drag.on = 1; drag.lf = leaves[drag.k];
+      try { book.setPointerCapture(e.pointerId); } catch (x) {}
+      drag.lf.style.transition = 'none'; drag.lf.style.zIndex = 100;
+    }
+    drag.p = Math.max(0, Math.min(1, v / (PW * 0.9)));
+    drag.lf.style.transform = 'rotateY(' + (drag.dir > 0 ? -180 * drag.p : -180 + 180 * drag.p) + 'deg)';
+    for (var c = 0; c < drag.lf.children.length; c++) drag.lf.children[c].lastChild.style.opacity = String(Math.sin(Math.PI * drag.p) * 0.45);
+  });
+  function endDrag() {
+    if (!drag) return;
+    var d = drag; drag = null;
+    if (!d.on) return;
+    swallow = Date.now() + 120;
+    for (var c = 0; c < d.lf.children.length; c++) d.lf.children[c].lastChild.style.opacity = '0';
+    d.lf.style.transition = TR;
+    if (d.p > 0.3) sp += d.dir;
+    apply();
+    d.lf.style.zIndex = 100;
+    setTimeout(function () { zFix(d.lf, d.k); }, 880);
+  }
+  book.addEventListener('pointerup', endDrag);
+  book.addEventListener('pointercancel', endDrag);
+  book.addEventListener('click', function (e) { if (Date.now() < swallow) { e.stopPropagation(); e.preventDefault(); } }, true);
+
+  function onKey(e) {
+    if (!document.body.contains(ov)) { document.removeEventListener('keydown', onKey); return; }
+    if (e.key === 'ArrowLeft') go(sp + 1); else if (e.key === 'ArrowRight') go(sp - 1);
+  }
+  document.addEventListener('keydown', onKey);
+
+  apply(); sty(); summ();
+  DT.root.appendChild(ov);
 }
 
 // الكاميرا: كلما اقترب الطرفان زاد التقريب نحو منتصفهما، وتبتعد بنعومة إذا افترقا
@@ -794,8 +1118,8 @@ function dtOnMsg(j) {
     DT.sig = '';
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
-    DT.gl = j.gl || {}; DT.gd = {};
-    if (dtDinner()) dtFlash('🍹 المس ورقة القائمة على الطاولة لتطلب مشروباً');
+    DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {};
+    if (dtDinner()) dtFlash('📖 المس قائمة العشاء على الطاولة لتطلب مشروباً وطعاماً');
   } else if (j.t === 'mode') {
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     dtFlash(DT.simple ? '🫧 النمط البسيط: فقاعتان للطرفين' : '🎭 عاد المشهد المتحرك');
@@ -859,6 +1183,11 @@ function dtActions() {
       if (nt) a.push(['↩️ ضع الكأس', 'gput', 1, 0]);
     }
     if (nt && mg.lv > 0) a.push(['🚰 أفرغ كأسي', 'gempty', 1, 0]);
+    if (nt && (mg.fb | 0) > 0) {
+      a.push(['🍴 كُل', 'fbite', 1, 0]);
+      if (p.here && pg) a.push(['🥄 أطعم شريكي', 'ffeed', DT.near.fx && (dtDist(m, p) <= 0.22 || (mg.s && pg.s)) ? 1 : 0, 1]);
+    }
+    if (nt && mg.fd) a.push(['🧹 ارفع الطبق', 'fclear', 1, 0]);
     if (mg.s) a.push(['🧍 قم من الكرسي', 'cstand', 1, 0]);
     else {
       var chp = { x: dtChX(me, mg.o), y: 0.5 };
@@ -1107,13 +1436,13 @@ function dtBuild(id, j) {
   [DT.els.candle, DT.els.ball, DT.els.rose, DT.els.m, DT.els.p].forEach(function (e) { st.appendChild(e); });
   if (j.ty === 'عشاء رومانسي') {                // ورقة قائمة قائمة على المائدة: المسها لتفتح نافذة المشروبات
     var card = dtNode('div', 'position:absolute;left:45.5%;top:47.5%;width:calc(var(--s)*.55);height:calc(var(--s)*.7);transform:translate(-50%,-50%) rotate(-6deg);z-index:880;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:5px;background:linear-gradient(180deg,#fffaf0,#f3e3c3);border:1px solid #c9a56a;box-shadow:0 3px 8px #0007,0 0 14px #fde68a88;color:#5b3a12;font-size:calc(var(--s)*.18);line-height:1;animation:dtcard 2.4s ease-in-out infinite');
-    card.appendChild(dtNode('span', '', '🍹'));
+    card.appendChild(dtNode('span', '', '📖'));
     card.appendChild(dtNode('span', 'font-size:calc(var(--s)*.1);font-weight:700', 'قائمة'));
-    card.title = 'قائمة المشروبات';
+    card.title = 'قائمة العشاء';
     card.addEventListener('pointerdown', function (e) {
       e.stopPropagation(); e.preventDefault();          // لا تتحرك الشخصية عند لمس الورقة
       if (!DT.wsOk) { dtFlash('غير متصل بالمسرح'); return; }
-      if (dtDist(DT.ch.m, DT_TBL) > DT_REACH.table) { dtFlash('اقترب من الطاولة لتطلب مشروباً'); return; }
+      if (dtDist(DT.ch.m, DT_TBL) > DT_REACH.table) { dtFlash('اقترب من الطاولة لتفتح القائمة'); return; }
       dtMenu();
     });
     st.appendChild(card);
@@ -1159,7 +1488,10 @@ function dtBuild(id, j) {
   window.addEventListener('resize', DT.onResize2);
   DT.onVis = dtVis;
   document.addEventListener('visibilitychange', DT.onVis);
-  DT.onKey = function (e) { if (e.key === 'Escape' && !document.getElementById('gstsheet')) dtClose(); };
+  DT.onKey = function (e) {
+    if (e.key === 'Escape' && DT.root) { var bk = DT.root.querySelector('#dtbook'); if (bk) { bk.remove(); return; } }
+    if (e.key === 'Escape' && !document.getElementById('gstsheet')) dtClose();
+  };
   document.addEventListener('keydown', DT.onKey);
   dtBokeh();
   DT.tm = setInterval(dtClock, 1000); dtClock();
