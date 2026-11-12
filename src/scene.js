@@ -20,6 +20,10 @@ const GIVE = 0.20;           // أقصى مسافة لتسليم الوردة
 const CANDLE = 0.20;         // أقصى مسافة لإشعال الشمعة
 const BALL_HIT = 0.075;      // ملامسة الكرة أثناء المشي
 const WALK_GAP = 0.11;        // المسافة الجانبية بين القائد والتابع أثناء «امشِ معي»
+const TABLE = { x: 0.5, y: 0.46 };   // طاولة العشاء (مرحلة 3): الكؤوس والزجاجة عليها
+const TABLE_R = 0.26;        // أقصى مسافة من الطاولة لأخذ الكأس أو ملئها أو إعادتها
+const POUR_R = 0.26;         // أقصى مسافة بين الطرفين لملء كأس الشريك
+const TOAST_R = 0.22;        // أقصى مسافة بين الطرفين للنخب
 const OFFER_MS = 20000;      // مهلة قبول الوردة
 const IDLE_MS = 5 * 60e3;    // الاتصال الخامل يُغلق
 const MAX_MSG = 200;         // أقصى حجم لرسالة من العميل
@@ -48,11 +52,14 @@ export class DateScene extends DurableObject {
     this.tick = 0;             // مؤقت فيزياء الكرة (يعمل فقط أثناء حركتها)
     this.lastKick = 0;
     this.lastCd = 0;
+    this.gl = {};              // كؤوس العشاء: { [uid]: { lv: 0..3 مستوى الشراب, h: 1 إن كانت بيده } }
+    this.lastToast = 0;
     this.ctx.blockConcurrencyWhile(async () => {
-      const [o, p, sm] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple')]);
+      const [o, p, sm, gl] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl')]);
       if (sm) this.simple = 1;
       if (o && o.rose && o.ball && o.candle) this.objs = o;
       if (Array.isArray(p)) this.pair = p;
+      if (gl && typeof gl === 'object') this.gl = gl;
     });
   }
 
@@ -113,6 +120,7 @@ export class DateScene extends DurableObject {
     };
     server.serializeAttachment(me);
     this.tidy(now);
+    this.ensureGl();
     const players = {};
     for (const ws of this.live()) {
       const a = ws.deserializeAttachment();
@@ -122,6 +130,7 @@ export class DateScene extends DurableObject {
     server.send(JSON.stringify({
       t: 'hello', you: id, now, players, simple: this.simple,
       walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
+      gl: this.gl,
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
@@ -169,6 +178,12 @@ export class DateScene extends DurableObject {
       this.bcast({ t: 'w', on: 1, lead: a.id, fol: o.id });
       this.moveFollower(a);
       this.nearCheck(false);
+      return;
+    }
+
+    // مشهد العشاء: الكأس والملء والرشفة والنخب
+    if (j.t === 'gtake' || j.t === 'gput' || j.t === 'gsip' || j.t === 'gfill' || j.t === 'gfillp' || j.t === 'gtoast') {
+      this.glassMsg(ws, a, j.t, now);
       return;
     }
 
@@ -268,6 +283,63 @@ export class DateScene extends DurableObject {
     if (settled || !this.live().length) { this.stopTick(); this.save(); }
   }
 
+  // ---------- مشهد العشاء: كأس لكل شخص ----------
+  ensureGl() {
+    if (!this.pair) return;
+    let ch = false;
+    for (const id of this.pair) if (!this.gl[id]) { this.gl[id] = { lv: 0, h: 0 }; ch = true; }
+    if (ch) this.saveGl();
+  }
+  saveGl() { return this.ctx.storage.put('gl', this.gl).catch(() => {}); }
+  nearTable(a) { return dist(a, TABLE) <= TABLE_R; }
+  glassMsg(ws, a, t, now) {
+    this.ensureGl();
+    const G = this.gl[a.id];
+    if (!G) return;
+    if (a.gt && now - a.gt < 350) return;                     // لا إغراق
+    a.gt = now; ws.serializeAttachment(a);
+    const o = this.other(a), OG = o ? this.gl[o.id] : null;
+    let ev = null;
+    if (t === 'gtake') {
+      if (G.h) return;
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتأخذ كأسك'); return; }
+      G.h = 1;
+    } else if (t === 'gput') {
+      if (!G.h) return;
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتعيد الكأس'); return; }
+      G.h = 0;
+    } else if (t === 'gsip') {
+      if (!G.h || G.lv <= 0) return;
+      if (a.gs && now - a.gs < 1800) return;
+      a.gs = now; ws.serializeAttachment(a);
+      G.lv -= 1;
+      ev = { t: 'gs', ev: 'sip', by: a.id };
+    } else if (t === 'gfill') {
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتملأ كأسك'); return; }
+      if (G.lv >= 3) return;
+      G.lv = 3;
+      ev = { t: 'gs', ev: 'pour', by: a.id, to: a.id };
+    } else if (t === 'gfillp') {
+      if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتملأ كأس شريكك'); return; }
+      if (dist(a, o) > POUR_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      if (OG.lv >= 3) return;
+      OG.lv = 3;
+      ev = { t: 'gs', ev: 'pour', by: a.id, to: o.id };
+    } else if (t === 'gtoast') {
+      if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+      if (!G.h || !OG.h || G.lv <= 0 || OG.lv <= 0) { this.tell(ws, 'النخب يحتاج كأسين ممتلئين بيد الطرفين'); return; }
+      if (!this.nearState().fx) { this.tell(ws, 'النخب متوقف بسبب إعداد «المساحة الشخصية»'); return; }
+      if (dist(a, o) > TOAST_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      if (now - this.lastToast < 3500) return;
+      this.lastToast = now;
+      ev = { t: 'gs', ev: 'toast', by: a.id, to: o.id };
+    }
+    this.saveGl();
+    this.bcast({ t: 'gl', gl: this.gl });
+    if (ev) this.bcast(ev);
+  }
+
   // ---------- امشِ معي / العناق / مسك اليد ----------
   playerWs(id) {
     for (const ws of this.live()) { const a = ws.deserializeAttachment(); if (a && a.id === id) return ws; }
@@ -341,6 +413,8 @@ export class DateScene extends DurableObject {
     // إن بقي للعضو اتصال آخر (استبدال تبويب) فلا نعدّه مغادراً
     if (this.live().some((o) => o !== ws && (o.deserializeAttachment() || {}).id === a.id)) return;
     if (this.walk && (this.walk.lead === a.id || this.walk.fol === a.id)) this.stopWalk();
+    const GL = this.gl[a.id];
+    if (GL && GL.h) { GL.h = 0; this.saveGl(); this.bcast({ t: 'gl', gl: this.gl }, ws); }   // كأسه تعود إلى الطاولة
     const R = this.objs.rose;
     if (R.by === a.id) { R.by = 0; R.offer = 0; R.x = a.x; R.y = clamp(a.y + 0.05, MINY, MAXY); this.save(); this.bcast(this.snap('rose'), ws); }
     else if (R.offer === a.id) { R.offer = 0; this.save(); this.bcast(this.snap('rose'), ws); }
@@ -373,7 +447,7 @@ export class DateScene extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, 'end'); } catch (e) {} }
     try { await this.ctx.storage.deleteAlarm(); } catch (e) {}
     try { await this.ctx.storage.deleteAll(); } catch (e) {}
-    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null;
+    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null; this.gl = {}; this.lastToast = 0;
   }
 }
 
