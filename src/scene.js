@@ -19,6 +19,7 @@ const TOUCH = 0.14;          // أقصى مسافة لالتقاط الوردة
 const GIVE = 0.20;           // أقصى مسافة لتسليم الوردة
 const CANDLE = 0.20;         // أقصى مسافة لإشعال الشمعة
 const BALL_HIT = 0.075;      // ملامسة الكرة أثناء المشي
+const WALK_GAP = 0.11;        // المسافة الجانبية بين القائد والتابع أثناء «امشِ معي»
 const OFFER_MS = 20000;      // مهلة قبول الوردة
 const IDLE_MS = 5 * 60e3;    // الاتصال الخامل يُغلق
 const MAX_MSG = 200;         // أقصى حجم لرسالة من العميل
@@ -42,11 +43,14 @@ export class DateScene extends DurableObject {
     this.objs = freshObjs();
     this.pair = null;          // [id1,id2] الطرفان المسموح لهما فقط
     this.fx = '0:0';           // آخر حالة قرب بُثّت (k:fx)
+    this.walk = null;          // «امشِ معي»: { lead, fol, dx } في الذاكرة فقط
+    this.simple = 0;           // نمط المشهد: 0 متحرك، 1 بسيط (فقاعتان)؛ مشترك بين الطرفين
     this.tick = 0;             // مؤقت فيزياء الكرة (يعمل فقط أثناء حركتها)
     this.lastKick = 0;
     this.lastCd = 0;
     this.ctx.blockConcurrencyWhile(async () => {
-      const [o, p] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair')]);
+      const [o, p, sm] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple')]);
+      if (sm) this.simple = 1;
       if (o && o.rose && o.ball && o.candle) this.objs = o;
       if (Array.isArray(p)) this.pair = p;
     });
@@ -116,7 +120,8 @@ export class DateScene extends DurableObject {
     }
     players[id] = { x: r3(me.x), y: r3(me.y), n: me.n };
     server.send(JSON.stringify({
-      t: 'hello', you: id, now, players,
+      t: 'hello', you: id, now, players, simple: this.simple,
+      walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
@@ -144,7 +149,40 @@ export class DateScene extends DurableObject {
 
     if (j.t === 'a') { ws.serializeAttachment(a); return; }   // نشاط فقط: يمنع إغلاق الاتصال كخامل
 
+    // تبديل نمط المشهد (متحرك/بسيط): يُخزَّن ويُبثّ للطرفين معاً
+    if (j.t === 'mode') {
+      this.simple = j.simple ? 1 : 0;
+      this.ctx.storage.put('simple', this.simple).catch(() => {});
+      this.bcast({ t: 'mode', simple: this.simple });
+      return;
+    }
+
+    // «امشِ معي»: القائد يتحكم، والخادم يضع التابع بجانبه ويتجاهل حركة التابع نفسه
+    if (j.t === 'walk') {
+      if (!j.on) { if (this.walk && (this.walk.lead === a.id || this.walk.fol === a.id)) this.stopWalk(); return; }
+      if (this.walk) return;
+      const o = this.live().map((w) => w.deserializeAttachment()).filter((q) => q && q.id && q.id !== a.id)[0];
+      if (!o) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+      if (!this.nearState().fx) { this.tell(ws, 'المشي معاً متوقف بسبب إعداد «المساحة الشخصية»'); return; }
+      if (dist(a, o) > NEAR) { this.tell(ws, 'اقترب من شريكك أولاً'); return; }
+      this.walk = { lead: a.id, fol: o.id, dx: o.x >= a.x ? WALK_GAP : -WALK_GAP };
+      this.bcast({ t: 'w', on: 1, lead: a.id, fol: o.id });
+      this.moveFollower(a);
+      this.nearCheck(false);
+      return;
+    }
+
+    // العناق ومسك اليد: لا يُقبلان إلا والطرفان متقاربان (k=2) وبلا «مساحة شخصية»
+    if (j.t === 'hug' || j.t === 'hands') {
+      if (!this.canTouch(a.id)) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      if (a.tg && now - a.tg < 4000) return;
+      a.tg = now; ws.serializeAttachment(a);
+      this.bcast({ t: 'g', k: j.t, by: a.id });
+      return;
+    }
+
     if (j.t === 'm') {
+      if (this.walk && this.walk.fol === a.id) return;          // التابع لا يتحكم بموضعه أثناء المشي
       const x = num(j.x), y = num(j.y);
       if (x === null || y === null) return;
       if (a.mt && now - a.mt < 45) return;                    // أسرع من اللازم: تجاهل
@@ -159,6 +197,7 @@ export class DateScene extends DurableObject {
       ws.serializeAttachment(a);
       this.bcast({ t: 'p', id: a.id, x: r3(nx), y: r3(ny) }, ws);
       if (fixed) { try { ws.send(JSON.stringify({ t: 'f', x: r3(nx), y: r3(ny) })); } catch (e) {} }
+      if (this.walk && this.walk.lead === a.id) this.moveFollower(a);
       this.touchBall(a, px, py, now);
       this.nearCheck(false);
       return;
@@ -229,6 +268,34 @@ export class DateScene extends DurableObject {
     if (settled || !this.live().length) { this.stopTick(); this.save(); }
   }
 
+  // ---------- امشِ معي / العناق / مسك اليد ----------
+  playerWs(id) {
+    for (const ws of this.live()) { const a = ws.deserializeAttachment(); if (a && a.id === id) return ws; }
+    return null;
+  }
+  tell(ws, m) { try { ws.send(JSON.stringify({ t: 'e', m })); } catch (e) {} }
+  moveFollower(lead) {
+    const W = this.walk; if (!W) return;
+    const fws = this.playerWs(W.fol);
+    if (!fws) { this.stopWalk(); return; }
+    const fa = fws.deserializeAttachment();
+    const x = clamp(lead.x + W.dx, MINX, MAXX), y = clamp(lead.y, MINY, MAXY);
+    fa.x = x; fa.y = y; fa.mt = Date.now();
+    fws.serializeAttachment(fa);
+    this.bcast({ t: 'p', id: fa.id, x: r3(x), y: r3(y) }, fws);
+    try { fws.send(JSON.stringify({ t: 'f', x: r3(x), y: r3(y), s: 1 })); } catch (e) {}   // s: يمشي بنعومة لا يقفز
+  }
+  stopWalk() {
+    if (!this.walk) return;
+    this.walk = null;
+    this.bcast({ t: 'w', on: 0 });
+  }
+  // RPC: يُستدعى من gestures.js قبل قبول عناق/مسك يد أثناء موعد جارٍ
+  canTouch(uid) {
+    const st = this.nearState();
+    return st.k === 2 && !!st.fx && !!this.playerWs(uid);
+  }
+
   // ---------- القرب ----------
   // التأثيرات (قلوب، توهج، زرا العناق ومسك اليد) تعمل فقط إن كان الطرفان متصلين وكلاهما لم يفعّل «المساحة الشخصية».
   nearState() {
@@ -249,6 +316,7 @@ export class DateScene extends DurableObject {
         else if (d < NEAR || (cur >= 1 && d < NEAR + HYST)) k = 1;
       }
     }
+    if (this.walk && (fx === 0 || ps.length < 2)) this.stopWalk();
     const key = k + ':' + fx;
     if (key === this.fx && !force) return;
     this.fx = key;
@@ -272,6 +340,7 @@ export class DateScene extends DurableObject {
     if (!a || !a.id) return;
     // إن بقي للعضو اتصال آخر (استبدال تبويب) فلا نعدّه مغادراً
     if (this.live().some((o) => o !== ws && (o.deserializeAttachment() || {}).id === a.id)) return;
+    if (this.walk && (this.walk.lead === a.id || this.walk.fol === a.id)) this.stopWalk();
     const R = this.objs.rose;
     if (R.by === a.id) { R.by = 0; R.offer = 0; R.x = a.x; R.y = clamp(a.y + 0.05, MINY, MAXY); this.save(); this.bcast(this.snap('rose'), ws); }
     else if (R.offer === a.id) { R.offer = 0; this.save(); this.bcast(this.snap('rose'), ws); }
@@ -304,7 +373,7 @@ export class DateScene extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, 'end'); } catch (e) {} }
     try { await this.ctx.storage.deleteAlarm(); } catch (e) {}
     try { await this.ctx.storage.deleteAll(); } catch (e) {}
-    this.objs = freshObjs(); this.pair = null; this.fx = '0:0';
+    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null;
   }
 }
 

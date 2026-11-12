@@ -209,6 +209,8 @@ async function cleanup(env) {
     env.DB.prepare('DELETE FROM friend_requests WHERE ts<?').bind(now - KEEP),
     env.DB.prepare("DELETE FROM relationships WHERE status IN ('declined','ended') AND ended_at<?").bind(now - 3 * KEEP),
     env.DB.prepare('DELETE FROM pms WHERE del_from=1 AND del_to=1'),
+    // زوار غادروا دون تسجيل خروج (لا حضور منذ 5 دقائق): تُحذف رسائلهم الخاصة
+    env.DB.prepare("DELETE FROM pms WHERE from_id IN (SELECT id FROM users WHERE role='visitor' AND id NOT IN (SELECT user_id FROM presence WHERE ts>?)) OR to_id IN (SELECT id FROM users WHERE role='visitor' AND id NOT IN (SELECT user_id FROM presence WHERE ts>?))").bind(now - 5 * 6e4, now - 5 * 6e4),
     env.DB.prepare('DELETE FROM rel_memories WHERE rel_id NOT IN (SELECT id FROM relationships)'),
     env.DB.prepare('DELETE FROM date_msgs WHERE ts<?').bind(now - DAY),
     env.DB.prepare('DELETE FROM rel_reports WHERE ts<?').bind(now - 3 * KEEP),

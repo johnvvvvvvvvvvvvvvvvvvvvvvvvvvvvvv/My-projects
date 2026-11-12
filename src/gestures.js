@@ -77,6 +77,16 @@ async function gSend(req, env) {
   if (!r) return json({ error: 'الحركات متاحة بعد قبول الارتباط' }, 403);
   const to = r.user_a === u.id ? r.user_b : r.user_a;
 
+  // العناق ومسك اليد: إن كان للعلاقة موعد جارٍ فلا يُقبلان إلا والطرفان متقاربان في المسرح (يُفحص في الخادم)
+  if ((gid === 'hug' || gid === 'hands') && env.DATE_SCENE) {
+    const live = await env.DB.prepare("SELECT id FROM rel_dates WHERE rel_id=? AND status='live' LIMIT 1").bind(r.id).first();
+    if (live) {
+      let ok = false;
+      try { ok = await env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + live.id)).canTouch(u.id); } catch (e) { ok = false; }
+      if (!ok) return json({ error: 'العناق ومسك اليد يحتاجان أن تكونا متقاربين في مسرح الموعد' }, 403);
+    }
+  }
+
   const s = await env.DB.prepare(
     'SELECT (SELECT cd FROM gestures WHERE id=? AND active=1) cd,' +
     ' (SELECT 1 FROM gestures WHERE id=? AND active=1) ok,' +
