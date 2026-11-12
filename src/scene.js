@@ -29,6 +29,9 @@ const CHAIR_Y = 0.50;        // صف الكراسي (على جانبي الطا�
 const CHAIR_X = { tuck: [0.30, 0.70], out: [0.23, 0.77] };   // [صاحب المعرّف الأصغر، الأكبر]: كرسي مدفوع / مسحوب
 const DRINKS = new Set(['water', 'iced_tea', 'lemonmint', 'coffee', 'tea', 'cocoa', 'qahwa', 'cola', 'lemonade', 'soda', 'berry',
   'grape', 'orange', 'mango', 'strawberry', 'milkshake']);   // معرّفات المشروبات المسموحة (خصائصها ورسمها في date.js)
+const FEED_R = 0.22;         // أقصى مسافة بين الطرفين لإطعام لقمة (الجالسان على الطاولة لا يحتاجان قرباً)
+const FOODS = new Set(['lentil', 'salad', 'hummus', 'garlic', 'samosa', 'steak', 'pasta', 'chicken', 'fish', 'kabsa',
+  'cake', 'icecream', 'fondant', 'flan', 'berries']);   // معرّفات الأطعمة المسموحة (أسماؤها ورسمها في date.js)
 const OFFER_MS = 20000;      // مهلة قبول الوردة
 const IDLE_MS = 5 * 60e3;    // الاتصال الخامل يُغلق
 const MAX_MSG = 200;         // أقصى حجم لرسالة من العميل
@@ -57,7 +60,7 @@ export class DateScene extends DurableObject {
     this.tick = 0;             // مؤقت فيزياء الكرة (يعمل فقط أثناء حركتها)
     this.lastKick = 0;
     this.lastCd = 0;
-    this.gl = {};              // طاولة العشاء: { [uid]: { lv: 0..3 مستوى الشراب, dk: نوع المشروب, h: 1 كأس بيده, o: 1 كرسي مسحوب, s: 1 جالس } }
+    this.gl = {};              // طاولة العشاء: { [uid]: { lv: 0..3 مستوى الشراب, dk: نوع المشروب, h: 1 كأس بيده, o: 1 كرسي مسحوب, s: 1 جالس, fd: الطبق الحالي, fb: 0..3 اللقمات المتبقية } }
     this.lastToast = 0;
     this.ctx.blockConcurrencyWhile(async () => {
       const [o, p, sm, gl] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl')]);
@@ -189,7 +192,8 @@ export class DateScene extends DurableObject {
 
     // مشهد العشاء: الكأس والملء والرشفة والنخب
     if (j.t === 'gtake' || j.t === 'gput' || j.t === 'gsip' || j.t === 'gfill' || j.t === 'gfillp' || j.t === 'gtoast' || j.t === 'gempty' ||
-        j.t === 'cpull' || j.t === 'cpush' || j.t === 'csit' || j.t === 'cstand') {
+        j.t === 'cpull' || j.t === 'cpush' || j.t === 'csit' || j.t === 'cstand' ||
+        j.t === 'fserve' || j.t === 'fservep' || j.t === 'fbite' || j.t === 'ffeed' || j.t === 'fclear') {
       this.glassMsg(ws, a, j, now);
       return;
     }
@@ -295,7 +299,7 @@ export class DateScene extends DurableObject {
   ensureGl() {
     if (!this.pair) return;
     let ch = false;
-    for (const id of this.pair) if (!this.gl[id]) { this.gl[id] = { lv: 0, dk: 'grape', h: 0, o: 0, s: 0 }; ch = true; }
+    for (const id of this.pair) if (!this.gl[id]) { this.gl[id] = { lv: 0, dk: 'grape', h: 0, o: 0, s: 0, fd: '', fb: 0 }; ch = true; }
     if (ch) this.saveGl();
   }
   saveGl() { return this.ctx.storage.put('gl', this.gl).catch(() => {}); }
@@ -374,6 +378,41 @@ export class DateScene extends DurableObject {
       if (now - this.lastToast < 3500) return;
       this.lastToast = now;
       ev = { t: 'gs', ev: 'toast', by: a.id, to: o.id };
+    } else if (t === 'fserve' || t === 'fservep') {
+      // تقديم طبق: لنفسك أو لشريكك (نفس شروط القرب في المشروبات)
+      const mine = t === 'fserve';
+      if (!mine) {
+        if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+        if (dist(a, o) > POUR_R && !(G.s && OG.s)) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      }
+      if (!this.nearTable(a)) { this.tell(ws, mine ? 'اقترب من الطاولة لتطلب طبقك' : 'اقترب من الطاولة لتقدّم طبقاً لشريكك'); return; }
+      const T = mine ? G : OG, f = typeof j.d === 'string' && FOODS.has(j.d) ? j.d : '';
+      if (!f) return;
+      if ((T.fb | 0) > 0) { this.tell(ws, mine ? 'في طبقك طعام، أنهِه أو ارفع الطبق أولاً' : 'في طبق شريكك طعام بعد'); return; }
+      T.fd = f; T.fb = 3;
+      ev = { t: 'gs', ev: 'serve', by: a.id, to: mine ? a.id : o.id, fd: f };
+    } else if (t === 'fbite') {
+      if ((G.fb | 0) <= 0) return;
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتأكل'); return; }
+      if (a.fe && now - a.fe < 2000) return;
+      a.fe = now; ws.serializeAttachment(a);
+      G.fb -= 1;
+      ev = { t: 'gs', ev: 'bite', by: a.id };
+    } else if (t === 'ffeed') {
+      // إطعام الشريك لقمة من طبقك
+      if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+      if ((G.fb | 0) <= 0) { this.tell(ws, 'طبقك فارغ'); return; }
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة'); return; }
+      if (!this.nearState().fx) { this.tell(ws, 'الإطعام متوقف بسبب إعداد «المساحة الشخصية»'); return; }
+      if (dist(a, o) > FEED_R && !(G.s && OG.s)) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      if (a.fe && now - a.fe < 2400) return;
+      a.fe = now; ws.serializeAttachment(a);
+      G.fb -= 1;
+      ev = { t: 'gs', ev: 'feed', by: a.id, to: o.id };
+    } else if (t === 'fclear') {
+      if (!(G.fb | 0) && !G.fd) return;
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لترفع الطبق'); return; }
+      G.fd = ''; G.fb = 0;
     }
     this.saveGl();
     this.bcast({ t: 'gl', gl: this.gl });
