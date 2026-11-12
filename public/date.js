@@ -30,16 +30,19 @@ function dtReduce() {
 
 function dtBub(side, text, ms) {
   var e = DT.root && DT.root.querySelector(side === 'm' ? '#dbm' : '#dbh');
-  if (!e) return;
+  var e2 = DT.root && DT.root.querySelector(side === 'm' ? '#sbm' : '#sbh');   // فقاعة النمط البسيط
+  if (!e && !e2) return;
   clearTimeout(DT.bt[side]);
-  e.textContent = text;
-  e.style.opacity = '1';
-  DT.bt[side] = setTimeout(function () { e.style.opacity = '0'; }, ms || 6500);
+  if (e) { e.textContent = text; e.style.opacity = '1'; }
+  if (e2) { e2.textContent = text; e2.style.opacity = '1'; }
+  DT.bt[side] = setTimeout(function () { if (e) e.style.opacity = '0'; if (e2) e2.style.opacity = '0'; }, ms || 6500);
 }
 function dtBubX(side) {
   clearTimeout(DT.bt[side]);
   var e = DT.root && DT.root.querySelector(side === 'm' ? '#dbm' : '#dbh');
+  var e2 = DT.root && DT.root.querySelector(side === 'm' ? '#sbm' : '#sbh');
   if (e) e.style.opacity = '0';
+  if (e2) e2.style.opacity = '0';
 }
 function dtFlash(text) {
   var e = DT.root && DT.root.querySelector('#dmid');
@@ -160,10 +163,10 @@ var DT_SVG = {
 function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img&v=' + w.iv : ''; }
 
 function dtChar(letter, grad, glow, bubId, url) {
-  var c = dtNode('div', 'position:absolute;left:0;top:0;width:var(--s);height:var(--s);margin:calc(var(--s)/-2) 0 0 calc(var(--s)/-2);pointer-events:none;transition:opacity .4s');
+  var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;transition:opacity .4s');
   var bub = dtNode('div', 'position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:calc(var(--s)*2.6);min-height:30px;padding:7px 11px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:14px;line-height:1.4');
   bub.id = bubId;
-  var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.4);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, letter);
+  var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.26);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, letter);
   av.className = 'dtav';
   if (url) {
     var im = document.createElement('img');
@@ -183,21 +186,207 @@ function dtObjEl(svg, w, css) {
   return e;
 }
 
+/* ---------- النمط البسيط: فقاعتان للطرفين فقط (بدون مسرح ولا حركة) ---------- */
+function dtSmCard(side, name, letter, grad, glow, url) {
+  var c = dtNode('div', 'display:flex;flex-direction:column;align-items:center;gap:8px;width:42%;max-width:220px');
+  var bub = dtNode('div', 'min-height:44px;max-width:100%;padding:8px 12px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:15px;line-height:1.4');
+  bub.id = side === 'm' ? 'sbm' : 'sbh';
+  var av = dtNode('div', 'position:relative;width:96px;height:96px;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:38px;font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, letter);
+  if (url) {
+    var im = document.createElement('img');
+    im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover';
+    im.alt = ''; im.draggable = false;
+    im.onerror = function () { im.remove(); };
+    im.src = url;
+    av.appendChild(im);
+  }
+  var nm = dtNode('b', 'font-size:14px;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap', name);
+  var sd = dtNode('span', 'font-size:12px;opacity:.85', side === 'm' ? '🟢 أنت' : '⚪ غير متصل');
+  sd.id = side === 'm' ? 'sdm' : 'sdh';
+  c.appendChild(bub); c.appendChild(av); c.appendChild(nm); c.appendChild(sd);
+  return c;
+}
+function dtSmHere() {
+  var e = DT.root && DT.root.querySelector('#sdh');
+  if (e) e.textContent = DT.ch && DT.ch.p.here ? '🟢 متصل' : '⚪ غير متصل';
+}
+function dtApplyMode() {
+  if (!DT.root) return;
+  var area = DT.root.querySelector('#dtarea');
+  if (area) area.style.display = DT.simple ? 'none' : 'flex';
+  if (DT.sm) DT.sm.style.display = DT.simple ? 'flex' : 'none';
+  if (DT.modeBtn) DT.modeBtn.textContent = DT.simple ? '🎭 مشهد متحرك' : '🫧 نمط بسيط';
+  DT.sig = '';
+  dtSmHere();
+  if (!DT.simple) dtStageSize();
+}
+function dtToggleMode() {
+  var want = DT.simple ? 0 : 1;
+  if (DT.wsOk) dtWsSend({ t: 'mode', simple: want });   // الخادم يبثّه للطرفين فيصل الرد في dtOnMsg
+  else { DT.simple = want; dtApplyMode(); }
+}
+
 function dtStageSize() {
   if (!DT.root) return;
   var top = DT.root.querySelector('#dttop'), bar = DT.root.querySelector('#dtbar'), ar = DT.root.querySelector('#dtarea');
   var t = top ? top.offsetHeight : 48, b = bar ? bar.offsetHeight : 60;
   var safe = parseFloat(getComputedStyle(DT.root).paddingTop) || 0;   // منطقة الأمان العلوية (الجوال)
   ar.style.top = (safe + t) + 'px'; ar.style.bottom = b + 'px';
+  if (DT.sm) { DT.sm.style.top = ar.style.top; DT.sm.style.bottom = ar.style.bottom; }
   var aw = innerWidth - 8, ah = innerHeight - safe - t - b - 8;
   var w = Math.max(200, Math.min(aw, ah * 4 / 3)), h = w * 3 / 4;
   var st = DT.st;
   st.style.width = w + 'px'; st.style.height = h + 'px';
-  st.style.setProperty('--s', dtClamp(w * 0.11, 44, 92) + 'px');
+  DT.s = dtClamp(w * 0.11, 44, 92); st.style.setProperty('--s', DT.s + 'px');
   var dpr = Math.min(2, window.devicePixelRatio || 1);
   DT.fx.width = Math.round(w * dpr); DT.fx.height = Math.round(h * dpr);
   DT.fx.style.width = w + 'px'; DT.fx.style.height = h + 'px';
   DT.sw = w; DT.sh = h; DT.dpr = dpr;
+  if (DT.bd) { DT.bd.width = Math.round(w * dpr); DT.bd.height = Math.round(h * dpr); DT.bd.style.width = w + 'px'; DT.bd.style.height = h + 'px'; DT.bdx = null; }
+  dtBgBuild();
+}
+
+/* ---------- المرحلة 2: الخلفيات والشخصيات بالكانفاس ---------- */
+var DT_SKIN = '#edbf9d';
+var DT_PAL = {
+  m: { top: '#0f766e', top2: '#2dd4bf', leg: '#1f2937', shoe: '#0b1220' },
+  p: { top: '#be123c', top2: '#fb7185', leg: '#3b2f63', shoe: '#150f2b' }
+};
+
+// خلفية كل نوع موعد: تُرسم مرة واحدة على لوحة خفية وتُنسخ كل إطار
+function dtBgBuild() {
+  var W = DT.sw, H = DT.sh, k = DT.dpr || 1;
+  if (!W || !H) return;
+  var c = document.createElement('canvas');
+  c.width = Math.round(W * k); c.height = Math.round(H * k);
+  var g = c.getContext('2d'); g.scale(k, k);
+  var ty = DT.ty, hz = H * 0.16, th = DT_TH[ty] || DT_TH['عشاء رومانسي'], i;
+  function lin(y0, y1, a, b) { var q = g.createLinearGradient(0, y0, 0, y1); q.addColorStop(0, a); q.addColorStop(1, b); return q; }
+  g.fillStyle = lin(0, hz, th[0], th[1]); g.fillRect(0, 0, W, hz);
+  g.fillStyle = lin(hz, H, th[1], th[0]); g.fillRect(0, hz, W, H - hz);
+  if (ty === 'مشي على الشاطئ') {
+    g.fillStyle = lin(0, H * 0.1, '#fb923c', '#f472b6'); g.fillRect(0, 0, W, H * 0.1);
+    g.fillStyle = '#fde68a'; g.beginPath(); g.arc(W * 0.5, H * 0.1, W * 0.06, Math.PI, 0); g.fill();
+    g.fillStyle = lin(H * 0.1, H * 0.22, '#0ea5e9', '#0369a1'); g.fillRect(0, H * 0.1, W, H * 0.12);
+    g.strokeStyle = 'rgba(255,255,255,.35)'; g.lineWidth = 1.5;
+    for (i = 0; i < 4; i++) { g.beginPath(); for (var x = 0; x <= W; x += 12) g.lineTo(x, H * (0.125 + i * 0.027) + Math.sin(x / 22 + i) * 2); g.stroke(); }
+    g.fillStyle = lin(H * 0.22, H, '#fde68a', '#c99a54'); g.fillRect(0, H * 0.22, W, H * 0.78);
+    g.fillStyle = 'rgba(255,255,255,.55)'; g.fillRect(0, H * 0.22, W, 3);
+    g.fillStyle = 'rgba(120,80,30,.25)'; for (i = 0; i < 40; i++) { g.beginPath(); g.arc(((i * 137) % 100) / 100 * W, H * (0.3 + ((i * 53) % 65) / 100), 1.6, 0, 7); g.fill(); }
+  } else if (ty === 'سينما') {
+    g.fillStyle = '#c7d2fe'; g.shadowColor = '#818cf8'; g.shadowBlur = 24; g.fillRect(W * 0.2, H * 0.02, W * 0.6, H * 0.11); g.shadowBlur = 0;
+    g.fillStyle = 'rgba(255,255,255,.04)'; for (i = 0; i < 6; i++) g.fillRect(0, hz + (H - hz) * i / 6, W, 2);
+    g.fillStyle = '#4c0519'; for (i = 0; i < 9; i++) { var sx = W * (0.04 + i * 0.105); g.beginPath(); g.roundRect ? g.roundRect(sx, H * 0.9, W * 0.085, H * 0.12, 8) : g.rect(sx, H * 0.9, W * 0.085, H * 0.12); g.fill(); }
+  } else if (ty === 'قهوة وحديث') {
+    g.fillStyle = 'rgba(253,224,71,.30)'; g.fillRect(W * 0.62, H * 0.02, W * 0.3, H * 0.11);
+    g.strokeStyle = '#3b2412'; g.lineWidth = 3; g.strokeRect(W * 0.62, H * 0.02, W * 0.3, H * 0.11);
+    g.beginPath(); g.moveTo(W * 0.77, H * 0.02); g.lineTo(W * 0.77, H * 0.13); g.stroke();
+    g.fillStyle = '#5a3418'; g.fillRect(W * 0.05, H * 0.07, W * 0.45, H * 0.07);
+    g.fillStyle = '#f5e6d3'; for (i = 0; i < 5; i++) { g.beginPath(); g.arc(W * (0.1 + i * 0.08), H * 0.065, 5, 0, 7); g.fill(); }
+    var q = H * 0.08; g.fillStyle = 'rgba(255,255,255,.045)';
+    for (var r = 0; r * q < H - hz; r++) for (var cc = 0; cc * q < W; cc++) if ((r + cc) % 2) g.fillRect(cc * q, hz + r * q, q, q);
+  } else if (ty === 'أمسية ألعاب') {
+    g.fillStyle = '#f0abfc'; g.shadowColor = '#e879f9'; g.shadowBlur = 14; g.fillRect(W * 0.06, H * 0.035, W * 0.88, H * 0.012); g.shadowBlur = 0;
+    g.fillStyle = 'rgba(76,29,149,.65)'; g.beginPath(); g.ellipse(W * 0.5, H * 0.62, W * 0.42, H * 0.3, 0, 0, 7); g.fill();
+    g.strokeStyle = '#a78bfa'; g.lineWidth = 3; g.stroke();
+    var cols = ['#fb7185', '#fbbf24', '#34d399', '#60a5fa'];
+    for (i = 0; i < 30; i++) { g.fillStyle = cols[i % 4]; g.globalAlpha = 0.5; g.beginPath(); g.arc(W * (0.12 + ((i * 71) % 77) / 100), H * (0.35 + ((i * 37) % 55) / 100), 4, 0, 7); g.fill(); }
+    g.globalAlpha = 1;
+  } else {   // عشاء رومانسي
+    g.fillStyle = 'rgba(255,255,255,.05)'; for (i = 1; i < 12; i++) g.fillRect(0, hz + (H - hz) * i / 12, W, 1);
+    var cg = lin(0, H * 0.3, '#7f1d1d', '#450a0a'); g.fillStyle = cg; g.fillRect(0, 0, W * 0.07, H * 0.3); g.fillRect(W * 0.93, 0, W * 0.07, H * 0.3);
+    g.fillStyle = '#fde68a'; for (i = 0; i < 15; i++) { g.beginPath(); g.arc(W * i / 14, H * 0.04 + Math.sin(i * 1.3) * 4, 2.6, 0, 7); g.fill(); }
+    g.fillStyle = '#f3dfe4'; g.beginPath(); g.ellipse(W * 0.5, H * 0.40, W * 0.17, H * 0.055, 0, 0, 7); g.fill();
+    g.fillStyle = '#e7c4cd'; g.beginPath(); g.moveTo(W * 0.33, H * 0.40); g.lineTo(W * 0.33, H * 0.50); g.quadraticCurveTo(W * 0.5, H * 0.56, W * 0.67, H * 0.50); g.lineTo(W * 0.67, H * 0.40); g.closePath(); g.fill();
+    g.fillStyle = '#fff'; g.beginPath(); g.ellipse(W * 0.43, H * 0.395, W * 0.035, H * 0.014, 0, 0, 7); g.fill(); g.beginPath(); g.ellipse(W * 0.57, H * 0.395, W * 0.035, H * 0.014, 0, 0, 7); g.fill();
+  }
+  var vg = g.createRadialGradient(W / 2, H * 0.55, H * 0.28, W / 2, H * 0.55, W * 0.75);   // إضاءة: أطراف أغمق
+  vg.addColorStop(0, 'rgba(0,0,0,0)'); vg.addColorStop(1, 'rgba(0,0,0,.45)');
+  g.fillStyle = vg; g.fillRect(0, 0, W, H);
+  DT.bgc = c;
+}
+
+function dtReach(sx, sy, tx, ty, R) {
+  var dx = tx - sx, dy = ty - sy, d = Math.hypot(dx, dy);
+  if (d > R) { dx *= R / d; dy *= R / d; }
+  return [sx + dx, sy + dy];
+}
+function dtArm(g, sx, sy, hx, hy, pal, s) {
+  var mx = sx + (hx - sx) * 0.55, my = sy + (hy - sy) * 0.55 + s * 0.03;   // مرفق منخفض قليلاً
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  g.strokeStyle = pal.top; g.lineWidth = s * 0.16;
+  g.beginPath(); g.moveTo(sx, sy); g.lineTo(mx, my); g.stroke();
+  g.strokeStyle = DT_SKIN; g.lineWidth = s * 0.12;
+  g.beginPath(); g.moveTo(mx, my); g.lineTo(hx, hy); g.stroke();
+  g.fillStyle = DT_SKIN; g.beginPath(); g.arc(hx, hy, s * 0.075, 0, 7); g.fill();
+}
+// جسم الشخصية: الموضع (x,y) عند القدمين، والرأس (صورة الملف) عنصر DOM فوقه
+function dtFigure(g, c, pal, ts, here, link) {
+  var W = DT.sw, H = DT.sh, s = DT.s;
+  var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
+  var mv = c.moving && !DT.still;
+  var sw = mv ? Math.sin(ts / 110 + (c === DT.ch.p ? 1.3 : 0)) : 0;
+  var bob = mv ? Math.abs(Math.sin(ts / 110)) * H * 0.018 : 0;
+  var hipY = fy - s * 0.66 - bob * 0.5, shY = fy - s * 1.16 - bob;
+  g.globalAlpha = here ? 1 : 0.38;
+  g.fillStyle = 'rgba(0,0,0,.30)';
+  g.beginPath(); g.ellipse(fx, fy + s * 0.03, s * 0.42, s * 0.11, 0, 0, 7); g.fill();
+  g.lineCap = 'round'; g.lineJoin = 'round';
+  [-1, 1].forEach(function (d) {
+    var hx = fx + d * s * 0.12, q = sw * d;
+    var ex = hx + q * s * 0.2, ey = fy - (q > 0 ? q * s * 0.07 : 0);
+    g.strokeStyle = pal.leg; g.lineWidth = s * 0.2;
+    g.beginPath(); g.moveTo(hx, hipY); g.lineTo(ex, ey); g.stroke();
+    g.fillStyle = pal.shoe;
+    g.beginPath(); g.ellipse(ex + d * s * 0.02, ey + s * 0.01, s * 0.12, s * 0.06, 0, 0, 7); g.fill();
+  });
+  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob, s * 0.14, s * 0.26);
+  var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
+  g.fillStyle = gr;
+  g.beginPath();
+  g.moveTo(fx - s * 0.31, shY + s * 0.05);
+  g.quadraticCurveTo(fx - s * 0.33, shY - s * 0.02, fx - s * 0.2, shY - s * 0.02);
+  g.lineTo(fx + s * 0.2, shY - s * 0.02);
+  g.quadraticCurveTo(fx + s * 0.33, shY - s * 0.02, fx + s * 0.31, shY + s * 0.05);
+  g.quadraticCurveTo(fx + s * 0.27, hipY - s * 0.2, fx + s * 0.25, hipY + s * 0.03);
+  g.lineTo(fx - s * 0.25, hipY + s * 0.03);
+  g.quadraticCurveTo(fx - s * 0.27, hipY - s * 0.2, fx - s * 0.31, shY + s * 0.05);
+  g.closePath(); g.fill();
+  [-1, 1].forEach(function (d) {
+    var sx = fx + d * s * 0.31, sy = shY + s * 0.06, hx, hy, t;
+    if (link && link.hug) { t = dtReach(sx, sy, link.x + d * s * 0.16, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
+    else if (link && link.side === d) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
+    else { hx = sx + d * s * 0.07 - sw * d * s * 0.05; hy = sy + s * 0.52 - Math.abs(sw) * s * 0.02; }
+    dtArm(g, sx, sy, hx, hy, pal, s);
+  });
+  g.globalAlpha = 1;
+}
+function dtPose() {
+  var m = DT.ch.m, p = DT.ch.p;
+  if (!p.here || !DT.near.fx || dtDist(m, p) > 0.30) return '';
+  if (DT.walk) return 'hands';
+  var q = DT.pose; if (q && Date.now() < q.until) return q.k;
+  return '';
+}
+function dtBodyDraw(ts) {
+  var c = DT.bd; if (!c || !DT.sw || DT.simple) return;
+  var g = DT.bdx || (DT.bdx = c.getContext('2d'));
+  var W = DT.sw, H = DT.sh, s = DT.s;
+  g.setTransform(DT.dpr, 0, 0, DT.dpr, 0, 0);
+  g.clearRect(0, 0, W, H);
+  if (DT.bgc) g.drawImage(DT.bgc, 0, 0, W, H);
+  var m = DT.ch.m, p = DT.ch.p, pose = dtPose();
+  var mx = m.x * W, my = m.y * H, px = (p.x == null ? 0.5 : p.x) * W, py = (p.y == null ? 0.7 : p.y) * H;
+  var lm = null, lp = null;
+  if (pose === 'hands') {
+    var M = { x: (mx + px) / 2, y: (my + py) / 2 - s * 0.6 };
+    lm = { side: px >= mx ? 1 : -1, x: M.x, y: M.y }; lp = { side: mx >= px ? 1 : -1, x: M.x, y: M.y };
+  } else if (pose === 'hug') {
+    lm = { hug: 1, x: px, y: py - s * 0.95 }; lp = { hug: 1, x: mx, y: my - s * 0.95 };
+  }
+  var a = [m, DT_PAL.m, 1, lm], b = [p, DT_PAL.p, p.here, lp];
+  var order = py < my ? [b, a] : [a, b];   // الأبعد أولاً
+  order.forEach(function (z) { dtFigure(g, z[0], z[1], ts, z[2], z[3]); });
 }
 
 function dtPlace(el, x, y, z) {
@@ -222,7 +411,7 @@ function dtWsOpen() {
   };
   w.onclose = function (ev) {
     if (DT.ws !== w) return;
-    DT.ws = null; DT.wsOk = 0; DT.ch.p.here = 0; dtWsDot(); DT.sig = '';
+    DT.ws = null; DT.wsOk = 0; DT.ch.p.here = 0; DT.walk = null; dtWsDot(); DT.sig = ''; dtSmHere();
     if (!DT.id) return;
     var why = ev && ev.reason;
     if (why === 'idle' || why === 'hidden') { DT.wsIdle = 1; return; }   // يعود عند أول لمسة
@@ -265,20 +454,33 @@ function dtOnMsg(j) {
     for (var k in j.objs) dtObjSet(j.objs[k]);
     DT.near = j.near || { k: 0, fx: 1 };
     DT.sig = '';
+    DT.simple = j.simple ? 1 : 0; dtApplyMode();
+    DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
+  } else if (j.t === 'mode') {
+    DT.simple = j.simple ? 1 : 0; dtApplyMode();
+    dtFlash(DT.simple ? '🫧 النمط البسيط: فقاعتان للطرفين' : '🎭 عاد المشهد المتحرك');
   } else if (j.t === 'j') {
-    if (j.id !== DT.myId) { dtSetPos(DT.ch.p, j.x, j.y, true); DT.ch.p.here = 1; DT.sig = ''; }
+    if (j.id !== DT.myId) { dtSetPos(DT.ch.p, j.x, j.y, true); DT.ch.p.here = 1; DT.sig = ''; dtSmHere(); }
   } else if (j.t === 'l') {
-    if (j.id !== DT.myId) { DT.ch.p.here = 0; DT.sig = ''; }
+    if (j.id !== DT.myId) { DT.ch.p.here = 0; DT.sig = ''; dtSmHere(); }
   } else if (j.t === 'p') {
     if (j.id !== DT.myId) { DT.ch.p.here = 1; dtSetPos(DT.ch.p, j.x, j.y, false); }
   } else if (j.t === 'f') {                    // تصحيح من الخادم (قفز أو تجاوز سرعة)
-    DT.ch.m.x = DT.ch.m.tx = j.x; DT.ch.m.y = DT.ch.m.ty = j.y;
+    if (j.s) { DT.ch.m.tx = j.x; DT.ch.m.ty = j.y; }           // مرافقة: يمشي نحو الموضع بنعومة
+    else { DT.ch.m.x = DT.ch.m.tx = j.x; DT.ch.m.y = DT.ch.m.ty = j.y; }
   } else if (j.t === 'n') {
     DT.near = { k: j.k, fx: j.fx };
     if (!j.fx && DT.ch.p.here && !DT.fxNote) { DT.fxNote = 1; dtFlash('تأثيرات القرب متوقفة (إعداد المساحة الشخصية)'); }
     DT.sig = '';
   } else if (j.t === 'o') {
     dtObjSet(j);
+  } else if (j.t === 'w') {
+    DT.walk = j.on ? { lead: j.lead, fol: j.fol } : null; DT.sig = '';
+    dtFlash(j.on ? (j.lead === DT.myId ? '🚶 تمشيان معاً، وأنت من يقود' : '🚶 تمشيان معاً، شريكك يقودك') : '⏹ توقف المشي المشترك');
+  } else if (j.t === 'g') {
+    DT.pose = { k: j.k, until: Date.now() + 7000 };
+  } else if (j.t === 'e') {
+    dtFlash('⚠️ ' + String(j.m || '').slice(0, 80));
   }
 }
 
@@ -293,7 +495,7 @@ function dtGest(id) {
 
 function dtActions() {
   var m = DT.ch.m, p = DT.ch.p, R = DT.ob.rose, C = DT.ob.candle, me = DT.myId, a = [];
-  if (!DT.wsOk || !me) return a;
+  if (!DT.wsOk || !me || DT.simple) return a;
   var now = Date.now() + (DT.soff || 0);
   if (R) {
     var off = R.offer && now - R.ot <= DT_OFFER_MS ? R.offer : 0;
@@ -304,12 +506,16 @@ function dtActions() {
     } else if (!R.by && !off && dtDist(m, R) <= DT_REACH.touch) a.push(['🌹 التقط الوردة', 'pick', 1, 1]);
   }
   if (C && dtDist(m, C) <= DT_REACH.candle) a.push([C.on ? '🕯️ أطفئ الشمعة' : '🕯️ أشعل الشمعة', 'cd', 1, 0]);
+  if (DT.walk) a.push(['⏹ توقف عن المشي معاً', 'walk0', 1, 0]);
+  else if (DT.near.k >= 1 && DT.near.fx && p.here) a.push(['🚶 امشِ معي', 'walk1', 1, 1]);
   if (DT.near.k === 2 && DT.near.fx && p.here) a.push(['🤗 عناق', 'hug', 1, 0], ['🤝 مسك اليد', 'hands', 1, 0]);
   return a;
 }
 
 function dtDoAct(k) {
-  if (k === 'hug' || k === 'hands') { dtGest(k); return; }
+  if (k === 'walk1') { dtWsSend({ t: 'walk', on: 1 }); return; }
+  if (k === 'walk0') { dtWsSend({ t: 'walk', on: 0 }); return; }
+  if (k === 'hug' || k === 'hands') { dtWsSend({ t: k }); dtGest(k); return; }
   var o = { t: k };
   if (k === 'pick') o.o = 'rose';
   dtWsSend(o);
@@ -382,7 +588,7 @@ function dtLoop(ts) {
   var dx = m.tx - m.x, dy = m.ty - m.y, d = Math.hypot(dx, dy * 0.75);
   m.moving = d > 0.002;
   if (m.moving) {
-    var f = Math.min(1, ((DT.drag ? 1.1 : 0.5) * dt) / d);
+    var f = Math.min(1, ((((DT.walk && DT.walk.fol === DT.myId) ? 2.2 : DT.drag ? 1.1 : 0.5)) * dt) / d);
     m.x += dx * f; m.y += dy * f;
   }
   if (DT.wsOk && ts - DT.sent >= 100 && (Math.abs(m.x - m.sx) > 0.002 || Math.abs(m.y - m.sy) > 0.002)) {
@@ -412,12 +618,14 @@ function dtLoop(ts) {
     var off = R.offer && now - R.ot <= DT_OFFER_MS;
     if (R.by) {
       holder = R.by === DT.myId ? m : p;
-      pos = { x: holder.x + 0.045, y: holder.y - 0.02 };
-      if (off) { var rc = R.offer === DT.myId ? m : p; pos = { x: (holder.x + rc.x) / 2, y: (holder.y + rc.y) / 2 - 0.05 }; }
+      var hy = DT.sh ? (DT.s * 0.62) / DT.sh : 0.1;            // ارتفاع اليد فوق القدمين
+      pos = { x: holder.x + 0.045, y: holder.y - hy };
+      if (off) { var rc = R.offer === DT.myId ? m : p; pos = { x: (holder.x + rc.x) / 2, y: (holder.y + rc.y) / 2 - hy - 0.04 }; }
     } else pos = { x: R.x, y: R.y };
     dtPlace(DT.els.rose, pos.x, pos.y, Math.round(pos.y * 100) + 2);
     DT.els.rose.style.transform = 'translate(-50%,-70%)' + (off && !DT.still ? ' scale(' + (1 + Math.sin(ts / 160) * 0.08).toFixed(3) + ')' : '');
   }
+  dtBodyDraw(ts);
   dtFxDraw(ts, dt);
   dtRenderActs();
 }
@@ -434,6 +642,7 @@ function dtPt(e) {
 function dtBindStage(st) {
   st.addEventListener('pointerdown', function (e) {
     if (e.button > 0) return;
+    if (DT.walk && DT.walk.fol === DT.myId) { dtFlash('أنت تمشي مع شريكك، اضغط «توقف» لتتحكم بنفسك'); return; }
     if (!DT.ws && DT.wsIdle) { DT.wsN = 0; dtWsOpen(); }     // عودة بعد إغلاق الخمول
     var p = dtPt(e), m = DT.ch.m;
     DT.drag = dtDist(p, m) < 0.09;                           // أمسكت شخصيتي: تتبع إصبعي بسرعة أعلى
@@ -476,6 +685,7 @@ function dtBuild(id, j) {
   dtSetPos(DT.ch.m, lowMine ? 0.3 : 0.7, 0.72, true);       // نفس مواضع البداية في الخادم
   dtSetPos(DT.ch.p, lowMine ? 0.7 : 0.3, 0.72, true);
   DT.ob = {}; DT.near = { k: 0, fx: 1 }; DT.hearts = []; DT.glow = 0; DT.hz = 0; DT.sent = 0; DT.sig = '';
+  DT.simple = 0; DT.sm = null; DT.modeBtn = null;
   DT.dark = 0.34; DT.dTarget = 0.34; DT.wsN = 0; DT.wsIdle = 0; DT.drag = false; DT.fxNote = 0;
 
   var root = dtNode('div', 'position:fixed;inset:0;z-index:36;display:flex;overflow:hidden;color:#fff;padding-top:env(safe-area-inset-top,0px);overscroll-behavior:none;background:linear-gradient(180deg,' + th[0] + ',' + th[1] + ')');
@@ -495,6 +705,7 @@ function dtBuild(id, j) {
   var dot = dtNode('span', 'font-size:11px', '⚪'); dot.id = 'dtws'; top.appendChild(dot);
   top.appendChild(dtNode('span', 'flex:1'));
   [['🎲 سؤال', function () { api('date/ask', { id: DT.id }).then(function (r) { if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر السؤال')); }); }],
+   ['🫧 نمط بسيط', function () { dtToggleMode(); }],
    ['💞 حركات', function () { if (typeof gstOpen === 'function') gstOpen(); }],
    ['🚩 بلاغ', function () { if (window.relReport) relReport('date', DT.id); }],
    ['⤴️ خروج', function () { dtClose('خرجت من الموعد، يمكنك العودة إليه من نافذة الارتباط'); }],
@@ -504,7 +715,7 @@ function dtBuild(id, j) {
        if (r.j && r.j.ok) dtClose('🎬 انتهى الموعد وحُفظ في ذكرياتنا');
        else dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر الإنهاء'));
      }, function () { dtToast('⚠️ تعذر الاتصال بالخادم'); });
-   }]].forEach(function (a) { var b = dtNode('button', btn, a[0]); b.onclick = a[1]; top.appendChild(b); });
+   }]].forEach(function (a) { var b = dtNode('button', btn, a[0]); b.onclick = a[1]; top.appendChild(b); if (a[0] === '🫧 نمط بسيط') DT.modeBtn = b; });
   root.appendChild(top);
 
   // المسرح: منطقة لعب بنسبة 4:3 ثابتة في وسط الشاشة (الإحداثيات تتطابق بين الجوال والحاسوب)
@@ -513,7 +724,9 @@ function dtBuild(id, j) {
   var st = dtNode('div', 'position:relative;border-radius:18px;background:linear-gradient(180deg,#ffffff0a 0%,#ffffff14 55%,#00000030 100%);border:1px solid #ffffff22;touch-action:none;user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;cursor:pointer');
   var fxc = dtNode('canvas', 'position:absolute;left:0;top:0;border-radius:18px;pointer-events:none;z-index:900');
   var floor = dtNode('div', 'position:absolute;left:0;right:0;top:16%;height:1px;background:#ffffff1c;pointer-events:none');
-  st.appendChild(floor);
+  var bdc = dtNode('canvas', 'position:absolute;left:0;top:0;border-radius:18px;pointer-events:none;z-index:0');
+  st.appendChild(bdc); st.appendChild(floor);
+  DT.bd = bdc; DT.bdx = null; DT.bgc = null; DT.walk = null; DT.pose = null;
   DT.els = {};
   DT.els.candle = dtObjEl(DT_SVG.candle, 0.9, 'margin:calc(var(--s)*-1.1) 0 0 calc(var(--s)*-.45)');
   var fl = dtNode('div', 'position:absolute;left:50%;top:6%;width:22%;height:30%;border-radius:50% 50% 50% 50%/65% 65% 35% 35%;background:radial-gradient(ellipse at 50% 70%,#fff7c2,#fbbf24 55%,#f97316);box-shadow:0 0 14px 4px #fbbf2499;opacity:0;transition:opacity .35s;transform-origin:50% 100%;' + (DT.still ? 'transform:translate(-50%,0)' : 'animation:dtfl .5s ease-in-out infinite'));
@@ -527,6 +740,14 @@ function dtBuild(id, j) {
   area.appendChild(st);
   root.appendChild(area);
   DT.st = st; DT.fx = fxc;
+
+  // النمط البسيط: فقاعتان فقط (مخفي افتراضياً، يُبدَّل من زر الأعلى ويُزامَن بين الطرفين)
+  var sm = dtNode('div', 'position:absolute;inset-inline:0;display:none;align-items:center;justify-content:center;gap:6%;z-index:1;padding:0 10px');
+  sm.id = 'dtsimple';
+  sm.appendChild(dtSmCard('p', pn, pn.charAt(0), 'linear-gradient(135deg,#fb7185,#be123c)', '#fb718599', dtImgUrl(part)));
+  sm.appendChild(dtSmCard('m', mn, mn.charAt(0), 'linear-gradient(135deg,#2dd4bf,#0f766e)', '#2dd4bf99', dtImgUrl(mine)));
+  root.appendChild(sm);
+  DT.sm = sm;
 
   var mid = dtNode('div', 'position:absolute;top:24%;inset-inline:8%;text-align:center;font-size:20px;opacity:0;transition:opacity .6s;text-shadow:0 2px 14px #000;z-index:4;pointer-events:none');
   mid.id = 'dmid'; root.appendChild(mid);

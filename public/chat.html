@@ -452,7 +452,7 @@ if(can(me,t,4)&&lv(t)>=2)item('سحب الصلاحيات',function(){ask('سحب
 var sq=susp(t);if(sq&&(me.role==='owner'||(lv(me)>=4&&pw(me)>=sq.bp)))item('إعادة الصلاحيات',function(){t.susp=null;var tx='✅ أُعيدت صلاحيات '+t.name+' بواسطة '+me.name;addLog(tx);post(t.room||room,0,tx,1);drawUsers()});
 if(m.children.length===n0)m.appendChild(el('small','mu','الأوامر الإدارية غير متاحة: لا صلاحية، أو المستخدم ليس في غرفتك'));
 m.style.display='block';m.style.top=Math.min(e.clientY,innerHeight-300)+'px';m.style.left=Math.min(e.clientX,innerWidth-190)+'px'}
-function openPM(t){$('pf').style.display='none';if(lv(me)<1){alert('الزائر لا يستطيع إرسال رسائل خاصة. سجّل كعضو.');return}
+function openPM(t){$('pf').style.display='none';
 pm=t;unr[t.id]=0;nb();pms[t.id]=pms[t.id]||[];$('pt').textContent='خاص مع '+t.name;$('pn').style.display='grid';drawPM()}
 function drawPM(){var b=$('pb');b.textContent='';var pv=null;(pms[pm.id]||[]).forEach(function(m,i){b.appendChild(mkMsg(m,1,i,!!(pv&&pv.u===m.u)));pv=m});b.scrollTop=b.scrollHeight}
 function sendPM(){var v=$('pi').value.trim();if(!v||!pm)return;if(v.length>500){toast('⚠️ الرسالة طويلة (الحد 500 حرف)');return}
@@ -855,7 +855,7 @@ var _s15=saveST;saveST=function(){_s15();applyRM()};setTimeout(applyRM,2500);
 var lastTxt='',lastTs=0,NEWB=10*6e4;
 var _p15=post;post=function(r,u,t,s,ex){
 if(u===me&&!s&&!ex&&typeof t==='string'){
-t=t.replace(/(.)\1{3,}/g,'$1$1$1');
+t=t.replace(/(.)\1{14,}/g,function(m,c){return new Array(16).join(c)});
 var L=t.replace(/[^A-Za-z]/g,'');if(L.length>8&&L.replace(/[^A-Z]/g,'').length/L.length>.7)t=t.toLowerCase();
 if(t===lastTxt&&Date.now()-lastTs<3e4){toast('⛔ لا تكرر الرسالة نفسها');return null}
 if(me.role!=='owner'&&lv(me)<3&&Date.now()-(me.join||0)<NEWB&&/(https?:|www\.|\d{8,})/i.test(t)){toast('⛔ الروابط وأرقام الهاتف ممنوعة في أول 10 دقائق من تسجيلك');return null}
