@@ -24,6 +24,11 @@ const TABLE = { x: 0.5, y: 0.46 };   // طاولة العشاء (مرحلة 3): 
 const TABLE_R = 0.26;        // أقصى مسافة من الطاولة لأخذ الكأس أو ملئها أو إعادتها
 const POUR_R = 0.26;         // أقصى مسافة بين الطرفين لملء كأس الشريك
 const TOAST_R = 0.22;        // أقصى مسافة بين الطرفين للنخب
+const CHAIR_R = 0.16;        // أقصى مسافة من الكرسي لسحبه أو الجلوس عليه أو دفعه
+const CHAIR_Y = 0.50;        // صف الكراسي (على جانبي الطاولة)
+const CHAIR_X = { tuck: [0.30, 0.70], out: [0.23, 0.77] };   // [صاحب المعرّف الأصغر، الأكبر]: كرسي مدفوع / مسحوب
+const DRINKS = new Set(['water', 'iced_tea', 'lemonmint', 'coffee', 'tea', 'cocoa', 'qahwa', 'cola', 'lemonade', 'soda', 'berry',
+  'grape', 'orange', 'mango', 'strawberry', 'milkshake']);   // معرّفات المشروبات المسموحة (خصائصها ورسمها في date.js)
 const OFFER_MS = 20000;      // مهلة قبول الوردة
 const IDLE_MS = 5 * 60e3;    // الاتصال الخامل يُغلق
 const MAX_MSG = 200;         // أقصى حجم لرسالة من العميل
@@ -52,7 +57,7 @@ export class DateScene extends DurableObject {
     this.tick = 0;             // مؤقت فيزياء الكرة (يعمل فقط أثناء حركتها)
     this.lastKick = 0;
     this.lastCd = 0;
-    this.gl = {};              // كؤوس العشاء: { [uid]: { lv: 0..3 مستوى الشراب, h: 1 إن كانت بيده } }
+    this.gl = {};              // طاولة العشاء: { [uid]: { lv: 0..3 مستوى الشراب, dk: نوع المشروب, h: 1 كأس بيده, o: 1 كرسي مسحوب, s: 1 جالس } }
     this.lastToast = 0;
     this.ctx.blockConcurrencyWhile(async () => {
       const [o, p, sm, gl] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl')]);
@@ -174,6 +179,7 @@ export class DateScene extends DurableObject {
       if (!o) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
       if (!this.nearState().fx) { this.tell(ws, 'المشي معاً متوقف بسبب إعداد «المساحة الشخصية»'); return; }
       if (dist(a, o) > NEAR) { this.tell(ws, 'اقترب من شريكك أولاً'); return; }
+      if ((this.gl[a.id] && this.gl[a.id].s) || (this.gl[o.id] && this.gl[o.id].s)) { this.tell(ws, 'أحدكما جالس، قوما أولاً'); return; }
       this.walk = { lead: a.id, fol: o.id, dx: o.x >= a.x ? WALK_GAP : -WALK_GAP };
       this.bcast({ t: 'w', on: 1, lead: a.id, fol: o.id });
       this.moveFollower(a);
@@ -182,8 +188,9 @@ export class DateScene extends DurableObject {
     }
 
     // مشهد العشاء: الكأس والملء والرشفة والنخب
-    if (j.t === 'gtake' || j.t === 'gput' || j.t === 'gsip' || j.t === 'gfill' || j.t === 'gfillp' || j.t === 'gtoast') {
-      this.glassMsg(ws, a, j.t, now);
+    if (j.t === 'gtake' || j.t === 'gput' || j.t === 'gsip' || j.t === 'gfill' || j.t === 'gfillp' || j.t === 'gtoast' || j.t === 'gempty' ||
+        j.t === 'cpull' || j.t === 'cpush' || j.t === 'csit' || j.t === 'cstand') {
+      this.glassMsg(ws, a, j, now);
       return;
     }
 
@@ -198,6 +205,7 @@ export class DateScene extends DurableObject {
 
     if (j.t === 'm') {
       if (this.walk && this.walk.fol === a.id) return;          // التابع لا يتحكم بموضعه أثناء المشي
+      if (this.gl[a.id] && this.gl[a.id].s) return;             // الجالس لا يتحرك حتى يقوم
       const x = num(j.x), y = num(j.y);
       if (x === null || y === null) return;
       if (a.mt && now - a.mt < 45) return;                    // أسرع من اللازم: تجاهل
@@ -287,20 +295,48 @@ export class DateScene extends DurableObject {
   ensureGl() {
     if (!this.pair) return;
     let ch = false;
-    for (const id of this.pair) if (!this.gl[id]) { this.gl[id] = { lv: 0, h: 0 }; ch = true; }
+    for (const id of this.pair) if (!this.gl[id]) { this.gl[id] = { lv: 0, dk: 'grape', h: 0, o: 0, s: 0 }; ch = true; }
     if (ch) this.saveGl();
   }
   saveGl() { return this.ctx.storage.put('gl', this.gl).catch(() => {}); }
   nearTable(a) { return dist(a, TABLE) <= TABLE_R; }
-  glassMsg(ws, a, t, now) {
+  chairPos(id, out) {
+    const idx = this.pair && this.pair[0] === id ? 0 : 1;
+    return { x: CHAIR_X[out ? 'out' : 'tuck'][idx], y: CHAIR_Y };
+  }
+  // ينقل صاحب الاتصال إلى موضع (جلوس/قيام) بحركة ناعمة عنده، ويبثّ الموضع للشريك
+  placeAt(ws, a, x, y) {
+    a.x = x; a.y = y; a.mt = Date.now();
+    ws.serializeAttachment(a);
+    this.bcast({ t: 'p', id: a.id, x: r3(x), y: r3(y) }, ws);
+    try { ws.send(JSON.stringify({ t: 'f', x: r3(x), y: r3(y), s: 1 })); } catch (e) {}
+    this.nearCheck(false);
+  }
+  glassMsg(ws, a, j, now) {
+    const t = j.t;
     this.ensureGl();
     const G = this.gl[a.id];
     if (!G) return;
     if (a.gt && now - a.gt < 350) return;                     // لا إغراق
     a.gt = now; ws.serializeAttachment(a);
     const o = this.other(a), OG = o ? this.gl[o.id] : null;
-    let ev = null;
-    if (t === 'gtake') {
+    let ev = null, mv = null;
+    if (t === 'cpull' || t === 'cpush' || t === 'csit' || t === 'cstand') {
+      if (this.walk) { this.tell(ws, 'أوقف المشي معاً أولاً'); return; }
+      if (t === 'cstand') {
+        if (!G.s) return;
+        G.s = 0; G.o = 1; mv = this.chairPos(a.id, 1);          // يقوم والكرسي يبقى مسحوباً
+      } else {
+        if (G.s) return;
+        if (dist(a, this.chairPos(a.id, G.o)) > CHAIR_R) { this.tell(ws, 'اقترب من كرسيك'); return; }
+        if (t === 'cpull') { if (G.o) return; G.o = 1; }
+        else if (t === 'cpush') { if (!G.o) return; G.o = 0; }
+        else {
+          if (!G.o) { this.tell(ws, 'اسحب الكرسي أولاً'); return; }
+          G.s = 1; G.o = 0; mv = this.chairPos(a.id, 0);        // يجلس والكرسي يقترب من الطاولة
+        }
+      }
+    } else if (t === 'gtake') {
       if (G.h) return;
       if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتأخذ كأسك'); return; }
       G.h = 1;
@@ -314,18 +350,22 @@ export class DateScene extends DurableObject {
       a.gs = now; ws.serializeAttachment(a);
       G.lv -= 1;
       ev = { t: 'gs', ev: 'sip', by: a.id };
-    } else if (t === 'gfill') {
-      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتملأ كأسك'); return; }
-      if (G.lv >= 3) return;
-      G.lv = 3;
-      ev = { t: 'gs', ev: 'pour', by: a.id, to: a.id };
-    } else if (t === 'gfillp') {
-      if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
-      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتملأ كأس شريكك'); return; }
-      if (dist(a, o) > POUR_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
-      if (OG.lv >= 3) return;
-      OG.lv = 3;
-      ev = { t: 'gs', ev: 'pour', by: a.id, to: o.id };
+    } else if (t === 'gempty') {
+      if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتفرغ كأسك'); return; }
+      if (G.lv <= 0) return;
+      G.lv = 0;
+    } else if (t === 'gfill' || t === 'gfillp') {
+      const mine = t === 'gfill';
+      if (!mine) {
+        if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+        if (dist(a, o) > POUR_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      }
+      if (!this.nearTable(a)) { this.tell(ws, mine ? 'اقترب من الطاولة لتملأ كأسك' : 'اقترب من الطاولة لتملأ كأس شريكك'); return; }
+      const T = mine ? G : OG, d = typeof j.d === 'string' && DRINKS.has(j.d) ? j.d : (T.dk || 'grape');
+      if (T.lv > 0 && (T.dk || 'grape') !== d) { this.tell(ws, 'في الكأس مشروب آخر، أفرغها أولاً'); return; }
+      if (T.lv >= 3) return;
+      T.lv = 3; T.dk = d;
+      ev = { t: 'gs', ev: 'pour', by: a.id, to: mine ? a.id : o.id, dk: d };
     } else if (t === 'gtoast') {
       if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
       if (!G.h || !OG.h || G.lv <= 0 || OG.lv <= 0) { this.tell(ws, 'النخب يحتاج كأسين ممتلئين بيد الطرفين'); return; }
@@ -338,6 +378,7 @@ export class DateScene extends DurableObject {
     this.saveGl();
     this.bcast({ t: 'gl', gl: this.gl });
     if (ev) this.bcast(ev);
+    if (mv) this.placeAt(ws, a, mv.x, mv.y);
   }
 
   // ---------- امشِ معي / العناق / مسك اليد ----------
@@ -414,7 +455,7 @@ export class DateScene extends DurableObject {
     if (this.live().some((o) => o !== ws && (o.deserializeAttachment() || {}).id === a.id)) return;
     if (this.walk && (this.walk.lead === a.id || this.walk.fol === a.id)) this.stopWalk();
     const GL = this.gl[a.id];
-    if (GL && GL.h) { GL.h = 0; this.saveGl(); this.bcast({ t: 'gl', gl: this.gl }, ws); }   // كأسه تعود إلى الطاولة
+    if (GL && (GL.h || GL.s)) { GL.h = 0; if (GL.s) { GL.s = 0; GL.o = 1; } this.saveGl(); this.bcast({ t: 'gl', gl: this.gl }, ws); }   // كأسه تعود إلى الطاولة
     const R = this.objs.rose;
     if (R.by === a.id) { R.by = 0; R.offer = 0; R.x = a.x; R.y = clamp(a.y + 0.05, MINY, MAXY); this.save(); this.bcast(this.snap('rose'), ws); }
     else if (R.offer === a.id) { R.offer = 0; this.save(); this.bcast(this.snap('rose'), ws); }
