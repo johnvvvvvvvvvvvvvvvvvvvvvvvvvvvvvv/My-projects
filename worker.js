@@ -108,9 +108,11 @@ async function guest(req, env, ip) {
   const age = 18;
   const now = Date.now();
   // تنظيف الزوار القدامى الذين انتهت جلساتهم
-  await env.DB.prepare(
-    "DELETE FROM users WHERE role='visitor' AND created_at<? AND id NOT IN (SELECT user_id FROM sessions WHERE expires_at>?)"
-  ).bind(now - DAY, now).run();
+  const stale = "role='visitor' AND created_at<? AND id NOT IN (SELECT user_id FROM sessions WHERE expires_at>?)";
+  await env.DB.batch([
+    env.DB.prepare('DELETE FROM pms WHERE from_id IN (SELECT id FROM users WHERE ' + stale + ') OR to_id IN (SELECT id FROM users WHERE ' + stale + ')').bind(now - DAY, now, now - DAY, now),
+    env.DB.prepare('DELETE FROM users WHERE ' + stale).bind(now - DAY, now),
+  ]);
   const name = want;
   for (let i = 0; i < 1; i++) {
     const salt = rand(16);
@@ -1191,7 +1193,6 @@ async function pmFetch(env, me, pa, first, now, pu, vlv) {
 async function pmSend(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
-  if (u.role === 'visitor') return json({ error: 'الزائر لا يستطيع إرسال رسائل خاصة. سجّل كعضو.' }, 403);
   const b = await readBody(req);
   if (!b) return json({ error: 'طلب غير صالح' }, 400);
   const to = parseInt(b.to, 10);
@@ -1205,7 +1206,6 @@ async function pmSend(req, env) {
   if (np) return json({ error: np.user_id === u.id ? 'تم منعك من الرسائل الخاصة' : 'الخاص ممنوع مع هذا المستخدم' }, 403);
   const t = await env.DB.prepare('SELECT id,role FROM users WHERE id=?').bind(to).first();
   if (!t) return json({ error: 'المستخدم غير موجود' }, 404);
-  if (t.role === 'visitor') return json({ error: 'لا يمكن مراسلة زائر' }, 400);
   if (u.role !== 'owner') {
     const g = await env.DB.prepare(
       'SELECT (SELECT pm FROM user_prefs WHERE user_id=?) p, (SELECT 1 FROM friendships WHERE user_id=? AND friend_id=?) f'
@@ -1217,6 +1217,13 @@ async function pmSend(req, env) {
   const now = Date.now();
   const r = await env.DB.prepare('SELECT COUNT(*) c FROM pms WHERE from_id=? AND ts>?').bind(u.id, now - 5000).first();
   if (r.c >= 4) return json({ error: 'أبطئ قليلاً، رسائلك كثيرة' }, 429);
+  if (u.role === 'visitor') {
+    // حدود إضافية للزوار لمنع الإزعاج: 8 رسائل/دقيقة، و5 مستلمين مختلفين كل 10 دقائق
+    const vm = await env.DB.prepare('SELECT COUNT(*) c FROM pms WHERE from_id=? AND ts>?').bind(u.id, now - 60000).first();
+    if (vm.c >= 8) return json({ error: 'أبطئ قليلاً، الزائر له حد أقل للرسائل' }, 429);
+    const vr = await env.DB.prepare('SELECT COUNT(DISTINCT to_id) c, MAX(to_id=?) k FROM pms WHERE from_id=? AND ts>?').bind(to, u.id, now - 600000).first();
+    if (vr.c >= 5 && !vr.k) return json({ error: 'الزائر يستطيع مراسلة 5 أشخاص مختلفين كل 10 دقائق. سجّل كعضو لرفع الحد.' }, 429);
+  }
 
   const ms = parseInt(b.exp, 10);
   const exp = TMP_OK.includes(ms) ? now + ms : null;
@@ -2533,6 +2540,9 @@ async function roomBans(req, env, url) {
 
 async function logout(req, env) {
   const tok = getCookie(req, 'sid');
+  // الزائر: تُحذف رسائله الخاصة (المرسلة والمستلمة) من الخادم عند خروجه
+  const lu = await currentUser(req, env);
+  if (lu && lu.role === 'visitor') await env.DB.prepare('DELETE FROM pms WHERE from_id=? OR to_id=?').bind(lu.id, lu.id).run();
   if (tok) await env.DB.prepare('DELETE FROM sessions WHERE token_hash=?').bind(await sha256(tok)).run();
   return json({ ok: true }, 200, { 'set-cookie': 'sid=; Path=/; HttpOnly; Secure; SameSite=Lax; Max-Age=0' });
 }
