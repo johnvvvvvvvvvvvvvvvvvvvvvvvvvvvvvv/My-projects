@@ -358,7 +358,7 @@ export class DateScene extends DurableObject {
       const mine = t === 'gfill';
       if (!mine) {
         if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
-        if (dist(a, o) > POUR_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+        if (dist(a, o) > POUR_R && !(G.s && OG.s)) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }   // الجالسان على الطاولة لا يحتاجان قرباً
       }
       if (!this.nearTable(a)) { this.tell(ws, mine ? 'اقترب من الطاولة لتملأ كأسك' : 'اقترب من الطاولة لتملأ كأس شريكك'); return; }
       const T = mine ? G : OG, d = typeof j.d === 'string' && DRINKS.has(j.d) ? j.d : (T.dk || 'grape');
@@ -370,7 +370,7 @@ export class DateScene extends DurableObject {
       if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
       if (!G.h || !OG.h || G.lv <= 0 || OG.lv <= 0) { this.tell(ws, 'النخب يحتاج كأسين ممتلئين بيد الطرفين'); return; }
       if (!this.nearState().fx) { this.tell(ws, 'النخب متوقف بسبب إعداد «المساحة الشخصية»'); return; }
-      if (dist(a, o) > TOAST_R) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
+      if (dist(a, o) > TOAST_R && !(G.s && OG.s)) { this.tell(ws, 'اقترب من شريكك أكثر'); return; }
       if (now - this.lastToast < 3500) return;
       this.lastToast = now;
       ev = { t: 'gs', ev: 'toast', by: a.id, to: o.id };
