@@ -148,7 +148,7 @@ function dateOpen(id) {
    الخادم: src/scene.js (DateScene). الإحداثيات نسبية 0..1 على مسرح 4:3، والمسافة بعرض المسرح (y × 0.75).
    السحب أو النقر للمشي، والقرب يفتح العناق ومسك اليد، والأشياء: وردة تُسلَّم، كرة تُدفع، شمعة تُضيء. */
 var DT_LIM = { x0: 0.05, x1: 0.95, y0: 0.16, y1: 0.95 };   // نفس حدود الخادم
-var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
+var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22, chair: 0.16 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
 var DT_TBL = { x: 0.5, y: 0.46 };
 var DT_OFFER_MS = 20000;
 
@@ -325,10 +325,11 @@ function dtArm(g, sx, sy, hx, hy, pal, s) {
 function dtFigure(g, c, pal, ts, here, link) {
   var W = DT.sw, H = DT.sh, s = DT.s;
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
-  var mv = c.moving && !DT.still;
+  var sit = c.sit || 0, sdy = sit * s * 0.36;      // جلوس: ينزل الجسم نحو المقعد
+  var mv = c.moving && !DT.still && sit < 0.02;
   var sw = mv ? Math.sin(ts / 110 + (c === DT.ch.p ? 1.3 : 0)) : 0;
   var bob = mv ? Math.abs(Math.sin(ts / 110)) * H * 0.018 : 0;
-  var hipY = fy - s * 0.66 - bob * 0.5, shY = fy - s * 1.16 - bob;
+  var hipY = fy - s * 0.66 - bob * 0.5 + sdy, shY = fy - s * 1.16 - bob + sdy;
   g.globalAlpha = here ? 1 : 0.38;
   g.fillStyle = 'rgba(0,0,0,.30)';
   g.beginPath(); g.ellipse(fx, fy + s * 0.03, s * 0.42, s * 0.11, 0, 0, 7); g.fill();
@@ -341,7 +342,7 @@ function dtFigure(g, c, pal, ts, here, link) {
     g.fillStyle = pal.shoe;
     g.beginPath(); g.ellipse(ex + d * s * 0.02, ey + s * 0.01, s * 0.12, s * 0.06, 0, 0, 7); g.fill();
   });
-  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob, s * 0.14, s * 0.26);
+  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob + sdy, s * 0.14, s * 0.26);
   var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
   g.fillStyle = gr;
   g.beginPath();
@@ -389,6 +390,10 @@ function dtBodyDraw(ts) {
   if (dtDinner()) {
     var kd = Math.min(0.1, (ts - (DT.lbt || ts)) / 1000); DT.lbt = ts;
     dtDinnerTable(g, W, H, s, kd);
+    ['m', 'p'].forEach(function (r) {
+      var SG = DT.gl[dtGlId(r)], sc = DT.ch[r], tg = SG && SG.s ? 1 : 0;
+      sc.sit = DT.still ? tg : (sc.sit || 0) + (tg - (sc.sit || 0)) * Math.min(1, kd * 6);
+    });
     var hm = dtHoldLink('m', m, p, W, H, s, pose, lm), hp = dtHoldLink('p', p, m, W, H, s, pose, lp);
     if (hm) lm = hm;
     if (hp) lp = hp;
@@ -409,27 +414,116 @@ function dtGlTx(id) {                         // موضع الكأس على ال
   var k, lo = 1e15; for (k in DT.gl) if (+k < lo) lo = +k;
   return id === lo ? 0.385 : 0.615;
 }
-function dtGlass(g, x, y, h, lv, tilt) {      // كأس نبيذ: القاعدة عند (x,y) والارتفاع h، ومستوى الشراب lv من 0 إلى 3
-  var w = h * 0.5, by = -h * 0.42, bh = h * 0.58;
-  function bowl() {
-    g.beginPath(); g.moveTo(-w * 0.5, by - bh);
-    g.quadraticCurveTo(-w * 0.55, by - bh * 0.12, 0, by);
-    g.quadraticCurveTo(w * 0.55, by - bh * 0.12, w * 0.5, by - bh); g.closePath();
+/* المشروبات: الاسم n، الرمز e، لون السطح c والقاع c2، شكل الكأس gl (goblet|tall|mug|cup)، التأثير fx (steam بخار | fizz فقاعات)، ice مثلج، foam رغوة */
+var DT_DR = {
+  water:      { n: 'ماء بارد', e: '💧', c: '#e0f2fe', c2: '#7dd3fc', gl: 'tall', ice: 1, a: 0.6 },
+  iced_tea:   { n: 'شاي مثلج', e: '🧊', c: '#d97706', c2: '#92400e', gl: 'tall', ice: 1 },
+  lemonmint:  { n: 'ليمون بالنعناع', e: '🍋', c: '#d9f99d', c2: '#65a30d', gl: 'tall', ice: 1 },
+  coffee:     { n: 'قهوة', e: '☕', c: '#78350f', c2: '#3b1d0a', gl: 'mug', fx: 'steam' },
+  tea:        { n: 'شاي', e: '🍵', c: '#f59e0b', c2: '#b45309', gl: 'mug', fx: 'steam' },
+  cocoa:      { n: 'شوكولاتة ساخنة', e: '🍫', c: '#6b3a1e', c2: '#3b1d0a', gl: 'mug', fx: 'steam', foam: '#fef3c7' },
+  qahwa:      { n: 'قهوة عربية', e: '🫖', c: '#d4a24c', c2: '#a16207', gl: 'cup', fx: 'steam' },
+  cola:       { n: 'كولا', e: '🥤', c: '#4a1d0a', c2: '#1c0a04', gl: 'tall', fx: 'fizz', ice: 1 },
+  lemonade:   { n: 'ليموناضة فوّارة', e: '🍋', c: '#fef08a', c2: '#facc15', gl: 'tall', fx: 'fizz', ice: 1 },
+  soda:       { n: 'صودا', e: '🫧', c: '#e5f4ff', c2: '#bae6fd', gl: 'tall', fx: 'fizz', a: 0.5 },
+  berry:      { n: 'توت فوّار', e: '🍓', c: '#fb7185', c2: '#be123c', gl: 'tall', fx: 'fizz' },
+  grape:      { n: 'عصير العنب', e: '🍇', c: '#be123c', c2: '#7f1d1d', gl: 'goblet' },
+  orange:     { n: 'برتقال', e: '🍊', c: '#fdba74', c2: '#f97316', gl: 'tall' },
+  mango:      { n: 'مانجو', e: '🥭', c: '#fcd34d', c2: '#f59e0b', gl: 'tall' },
+  strawberry: { n: 'فراولة', e: '🍓', c: '#fda4af', c2: '#e11d48', gl: 'tall' },
+  milkshake:  { n: 'ميلك شيك', e: '🥛', c: '#fbcfe8', c2: '#f472b6', gl: 'tall', foam: '#ffffff' }
+};
+var DT_CATS = [
+  ['🧊 باردة', ['water', 'iced_tea', 'lemonmint']],
+  ['🔥 ساخنة', ['coffee', 'tea', 'cocoa', 'qahwa']],
+  ['🫧 غازية', ['cola', 'lemonade', 'soda', 'berry']],
+  ['🧃 عصائر ومخفوقات', ['grape', 'orange', 'mango', 'strawberry', 'milkshake']]
+];
+function dtGlass(g, x, y, h, lv, tilt, dk) {  // كأس: القاعدة عند (x,y) والارتفاع h، ومستوى الشراب lv من 0 إلى 3، والنوع من DT_DR
+  var D = DT_DR[dk] || DT_DR.grape, kind = D.gl, ts = DT.ts || 0, anim = !DT.still, i;
+  if (kind === 'cup') { h *= 0.66; kind = 'mug'; }
+  var yT, yB, wB, wT;                           // أعلى الوعاء وأسفله ونصف عرضه عند القاع والفوهة
+  if (kind === 'goblet') { yT = -h; yB = -h * 0.42; wB = 0; wT = h * 0.25; }
+  else if (kind === 'tall') { yT = -h; yB = 0; wB = h * 0.16; wT = h * 0.21; }
+  else { yT = -h * 0.78; yB = 0; wB = h * 0.27; wT = h * 0.27; }
+  function body() {
+    g.beginPath();
+    if (kind === 'goblet') { g.moveTo(-wT, yT); g.quadraticCurveTo(-wT * 1.1, yB - (yB - yT) * 0.12, 0, yB); g.quadraticCurveTo(wT * 1.1, yB - (yB - yT) * 0.12, wT, yT); }
+    else { g.moveTo(-wT, yT); g.lineTo(-wB, yB); g.lineTo(wB, yB); g.lineTo(wT, yT); }
+    g.closePath();
   }
   g.save(); g.translate(x, y); if (tilt) g.rotate(tilt);
-  g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(0, 0, w * 0.5, h * 0.05, 0, 0, 7); g.fill();
-  g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = Math.max(1.2, h * 0.04); g.lineCap = 'round';
-  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, by); g.stroke();
-  bowl(); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill();
-  if (lv > 0.03) {
-    var top = by - bh * 0.8 * Math.min(1, lv / 3);
-    g.save(); bowl(); g.clip();
-    var wg = g.createLinearGradient(0, top, 0, by); wg.addColorStop(0, '#be123c'); wg.addColorStop(1, '#7f1d1d');
-    g.fillStyle = wg; g.fillRect(-w, top, w * 2, by - top + 1);
-    g.restore();
+  g.lineCap = 'round';
+  if (kind === 'goblet') {
+    g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(0, 0, h * 0.25, h * 0.05, 0, 0, 7); g.fill();
+    g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = Math.max(1.2, h * 0.04);
+    g.beginPath(); g.moveTo(0, 0); g.lineTo(0, yB); g.stroke();
   }
-  bowl(); g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, h * 0.03); g.stroke();
+  if (kind === 'mug') {                          // كوب سيراميك أبيض بمقبض
+    body(); g.fillStyle = '#f1f5f9'; g.fill();
+    g.strokeStyle = '#cbd5e1'; g.lineWidth = Math.max(1, h * 0.03); g.stroke();
+    g.strokeStyle = '#e2e8f0'; g.lineWidth = Math.max(2, h * 0.07);
+    g.beginPath(); g.arc(wT, yT * 0.5, h * 0.16, -Math.PI / 2, Math.PI / 2); g.stroke();
+    if (lv > 0.03) {
+      var mc = g.createLinearGradient(0, yT, 0, yT + h * 0.1); mc.addColorStop(0, D.c); mc.addColorStop(1, D.c2);
+      g.fillStyle = mc; g.beginPath(); g.ellipse(0, yT + h * 0.02, wT * 0.9, h * 0.07, 0, 0, 7); g.fill();
+      if (D.foam) { g.fillStyle = D.foam; g.beginPath(); g.ellipse(0, yT + h * 0.015, wT * 0.62, h * 0.045, 0, 0, 7); g.fill(); }
+    }
+  } else {
+    body(); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill();
+    var f = Math.min(1, lv / 3), yL = yB - (yB - yT) * 0.84 * f;
+    if (lv > 0.03) {
+      g.save(); body(); g.clip();
+      var wg = g.createLinearGradient(0, yL, 0, yB); wg.addColorStop(0, D.c); wg.addColorStop(1, D.c2);
+      g.globalAlpha = D.a || 0.93; g.fillStyle = wg; g.fillRect(-h, yL, h * 2, yB - yL + 1); g.globalAlpha = 1;
+      if (D.foam && lv > 0.5) { g.fillStyle = D.foam; g.fillRect(-h, yL - h * 0.01, h * 2, h * 0.07); }
+      if (D.ice && lv > 0.5) {
+        g.fillStyle = 'rgba(255,255,255,.5)';
+        [[-0.45, 0.05, 0.2], [0.25, 0.1, -0.3], [-0.05, 0.2, 0.5]].forEach(function (q) {
+          var qs = h * 0.085; g.save(); g.translate(wT * q[0] * 1.6, yL + h * q[1]); g.rotate(q[2]); g.fillRect(-qs / 2, -qs / 2, qs, qs); g.restore();
+        });
+      }
+      if (D.fx === 'fizz' && lv > 0.5 && anim) {   // فقاعات تصعد داخل المشروب
+        g.strokeStyle = 'rgba(255,255,255,.85)'; g.lineWidth = Math.max(1, h * 0.012);
+        for (i = 0; i < 7; i++) {
+          var ph = (ts / 1500 + i * 0.173) % 1, bx = (((i * 53) % 17) / 17 - 0.5) * wB * 1.9, by = yB - ph * (yB - yL), br = h * (0.014 + (i % 3) * 0.007);
+          g.globalAlpha = 0.85 * (1 - ph * 0.5); g.beginPath(); g.arc(bx, by, br, 0, 7); g.stroke();
+        }
+        g.globalAlpha = 1;
+      }
+      g.restore();
+    }
+    if (D.fx === 'fizz' && lv > 0.5 && anim) {     // فقاعات صغيرة تتطاير فوق الفوهة
+      g.fillStyle = 'rgba(255,255,255,.8)';
+      for (i = 0; i < 3; i++) {
+        var p2 = (ts / 900 + i * 0.37) % 1;
+        g.globalAlpha = (1 - p2) * 0.7; g.beginPath(); g.arc((i - 1) * wT * 0.6 + Math.sin(p2 * 6 + i) * h * 0.02, yT - p2 * h * 0.18, h * 0.014, 0, 7); g.fill();
+      }
+      g.globalAlpha = 1;
+    }
+    body(); g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, h * 0.03); g.stroke();
+  }
+  if (D.fx === 'steam' && lv > 0.03 && anim) {     // بخار خفيف يصعد ويتلوّى
+    g.lineWidth = Math.max(1.5, h * 0.05);
+    for (i = 0; i < 3; i++) {
+      var sp = (ts / 2600 + i / 3) % 1, sx = (i - 1) * wT * 0.55, k;
+      g.strokeStyle = 'rgba(255,255,255,' + (0.3 * Math.sin(Math.PI * sp)).toFixed(3) + ')';
+      g.beginPath(); g.moveTo(sx, yT - h * 0.04);
+      for (k = 1; k <= 6; k++) g.lineTo(sx + Math.sin(sp * 6.3 + k * 0.9 + i * 2) * h * 0.035 * (k / 3), yT - h * 0.04 - k * h * 0.1);
+      g.stroke();
+    }
+  }
   g.restore();
+}
+function dtChairIdx(id) { var k, lo = 1e15; for (k in DT.gl) if (+k < lo) lo = +k; return id === lo ? 0 : 1; }
+function dtChX(id, out) { return (out ? [0.23, 0.77] : [0.30, 0.70])[dtChairIdx(id)]; }
+function dtChair(g, x, y, s) {                // كرسي أمامي: (x,y) عند الأرض تحت وسط المقعد
+  var w = s * 0.8;
+  g.fillStyle = '#4a2110'; g.fillRect(x - w * 0.5, y - s * 1.06, w, s * 0.78);        // ظهر الكرسي
+  g.fillStyle = '#6b3319'; g.fillRect(x - w * 0.43, y - s * 1.0, w * 0.86, s * 0.62);
+  g.fillStyle = '#3b1a0b'; g.fillRect(x - w * 0.5, y - s * 0.26, s * 0.07, s * 0.26); g.fillRect(x + w * 0.5 - s * 0.07, y - s * 0.26, s * 0.07, s * 0.26);
+  g.fillStyle = '#7a3b1d'; g.fillRect(x - w * 0.55, y - s * 0.28, w * 1.1, s * 0.1);   // المقعد
+  g.fillStyle = '#b4233f'; g.fillRect(x - w * 0.5, y - s * 0.36, w, s * 0.09);         // الوسادة
 }
 function dtBottle(g, x, y, h, a) {            // زجاجة تدور حول قاعدتها عند الصبّ
   var w = h * 0.26;
@@ -454,6 +548,13 @@ function dtDinnerTable(g, W, H, s, kd) {      // الزجاجة والكؤوس �
     var tp = dtGlassPos(P.to, W, H, s), u = (now - P.t0) / (P.until - P.t0);
     if (tp) a = (tp.x >= bx ? 1 : -1) * 0.85 * Math.min(1, Math.sin(Math.PI * u) * 2.2);
   }
+  for (id in DT.gl) {                           // الكراسي: تنزلق عند سحبها أو دفعها
+    G = DT.gl[id];
+    var tx = dtChX(+id, G.o), cxp = DT.cx[id];
+    if (cxp == null || DT.still) cxp = tx;
+    cxp += (tx - cxp) * Math.min(1, kd * 7); DT.cx[id] = cxp;
+    dtChair(g, cxp * W, H * 0.5, s);
+  }
   g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(bx, by + 2, bh * 0.2, bh * 0.06, 0, 0, 7); g.fill();
   dtBottle(g, bx, by, bh, a);
   DT.bn = { x: bx + bh * Math.sin(a), y: by - bh * Math.cos(a) };      // فوهة الزجاجة: منها يبدأ خيط الصبّ
@@ -464,7 +565,7 @@ function dtDinnerTable(g, W, H, s, kd) {      // الزجاجة والكؤوس �
     if (!G.h) {
       var gx = dtGlTx(+id) * W;
       g.fillStyle = 'rgba(0,0,0,.22)'; g.beginPath(); g.ellipse(gx, H * 0.415 + 1, s * 0.1, s * 0.03, 0, 0, 7); g.fill();
-      dtGlass(g, gx, H * 0.415, s * 0.34, d, 0);
+      dtGlass(g, gx, H * 0.415, s * 0.34, d, 0, G.dk);
     }
   }
 }
@@ -490,9 +591,9 @@ function dtDinnerFx(cx, W, H) {               // الكؤوس الممسوكة �
   ['m', 'p'].forEach(function (role) {
     var c = DT.ch[role], k = c.gk;
     if (!k || !c.hd || !c.hd[k.side]) return;
-    var hd = c.hd[k.side], dl = DT.gd[dtGlId(role)];
+    var hd = c.hd[k.side], gid = dtGlId(role), dl = DT.gd[gid], gk = DT.gl[gid];
     cx.globalAlpha = role === 'p' && !c.here ? 0.38 : 1;
-    dtGlass(cx, hd[0], hd[1] + s * 0.04, s * 0.36, dl == null ? 0 : dl, k.tilt || 0);
+    dtGlass(cx, hd[0], hd[1] + s * 0.04, s * 0.36, dl == null ? 0 : dl, k.tilt || 0, gk && gk.dk);
   });
   cx.globalAlpha = 1;
   if (P && !DT.still && now < P.until && DT.bn) {
@@ -522,7 +623,67 @@ function dtGlEv(j) {                          // حدث من الخادم: رش�
   var now = Date.now();
   if (j.ev === 'sip') DT.gfx[j.by] = { k: 'sip', t0: now, until: now + 2000 };
   else if (j.ev === 'toast') { DT.gfx[j.by] = DT.gfx[j.to] = { k: 'toast', t0: now, until: now + 2200 }; dtFlash('🥂 نخب!'); }
-  else if (j.ev === 'pour') DT.pour = { to: j.to, t0: now, until: now + 1300 };
+  else if (j.ev === 'pour') { DT.pour = { to: j.to, t0: now, until: now + 1300 }; if (DT_DR[j.dk]) dtFlash(DT_DR[j.dk].e + ' ' + DT_DR[j.dk].n); }
+}
+
+// قائمة المشروبات: تبويبات للأقسام، وأزرار للأنواع، واختيار «لي» أو «لشريكي»
+function dtMenu() {
+  var old = DT.root.querySelector('#dtmenu');
+  if (old) { old.remove(); return; }
+  var tgt = 'm', cat = 0;
+  var bar = DT.root.querySelector('#dtbar');
+  var box = dtNode('div', 'position:absolute;left:8px;right:8px;max-width:480px;margin:0 auto;z-index:60;background:#140a12f2;border:1px solid #ffffff33;border-radius:16px;padding:10px;box-shadow:0 6px 24px #000a;backdrop-filter:blur(6px);bottom:' + ((bar ? bar.offsetHeight : 60) + 62) + 'px');
+  box.id = 'dtmenu';
+  function chip(txt, on, fn) {
+    var b = dtNode('button', 'border:1px solid #ffffff44;border-radius:14px;padding:5px 11px;font:inherit;font-size:13px;color:#fff;cursor:pointer;background:' + (on ? '#e11d48' : 'transparent'), txt);
+    b.onclick = fn; return b;
+  }
+  function render() {
+    box.textContent = '';
+    var hd = dtNode('div', 'display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap');
+    hd.appendChild(dtNode('b', 'flex:1', '🍹 المشروبات'));
+    hd.appendChild(dtNode('span', 'font-size:12px;opacity:.8', 'لـ'));
+    hd.appendChild(chip('أنا', tgt === 'm', function () { tgt = 'm'; render(); }));
+    hd.appendChild(chip('شريكي', tgt === 'p', function () { tgt = 'p'; render(); }));
+    hd.appendChild(chip('✕', 0, function () { box.remove(); }));
+    box.appendChild(hd);
+    var tb = dtNode('div', 'display:flex;gap:6px;margin-bottom:8px;flex-wrap:wrap');
+    DT_CATS.forEach(function (c, i) { tb.appendChild(chip(c[0], i === cat, function () { cat = i; render(); })); });
+    box.appendChild(tb);
+    var gr = dtNode('div', 'display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:6px');
+    DT_CATS[cat][1].forEach(function (id) {
+      var D = DT_DR[id], tags = (D.fx === 'steam' ? '♨️ ساخن ' : '') + (D.fx === 'fizz' ? '🫧 فوّار ' : '') + (D.ice ? '🧊 مثلج ' : '') + (D.foam ? '☁️ رغوة' : '');
+      var b = dtNode('button', 'border:1px solid #ffffff33;border-radius:12px;padding:8px;font:inherit;color:#fff;cursor:pointer;text-align:center;background:linear-gradient(180deg,' + D.c + '55,' + D.c2 + '88)');
+      b.appendChild(dtNode('div', 'font-size:22px', D.e));
+      b.appendChild(dtNode('div', 'font-size:14px', D.n));
+      b.appendChild(dtNode('div', 'font-size:11px;opacity:.85;min-height:14px', tags));
+      b.onclick = function () {
+        if (tgt === 'p' && !DT.ch.p.here) { dtFlash('شريكك غير موجود في المسرح الآن'); return; }
+        dtWsSend({ t: tgt === 'm' ? 'gfill' : 'gfillp', d: id });
+        box.remove();
+      };
+      gr.appendChild(b);
+    });
+    box.appendChild(gr);
+  }
+  render();
+  DT.root.appendChild(box);
+}
+
+// الكاميرا: كلما اقترب الطرفان زاد التقريب نحو منتصفهما، وتبتعد بنعومة إذا افترقا
+function dtCamera(dt) {
+  var st = DT.st; if (!st || !DT.sw) return;
+  var W = DT.sw, H = DT.sh, s = DT.s, m = DT.ch.m, p = DT.ch.p, z = 1, mx = W / 2, my = H / 2;
+  if (DT.zoomOn && !DT.still && !DT.simple && p.here && p.x != null) {
+    z = 1 + dtClamp((0.42 - dtDist(m, p)) / 0.30, 0, 1) * 0.55;
+    mx = (m.x + p.x) / 2 * W; my = (m.y + p.y) / 2 * H - s * 0.7;
+  }
+  if (DT.zx == null) { DT.zx = W / 2; DT.zy = H / 2; }
+  var k = Math.min(1, dt * 2.5);
+  DT.zz += (z - DT.zz) * k; DT.zx += (mx - DT.zx) * k; DT.zy += (my - DT.zy) * k;
+  if (DT.zz < 1.003) { if (st.style.transform) st.style.transform = ''; return; }
+  var ex = dtClamp(DT.zx, W / (2 * DT.zz), W - W / (2 * DT.zz)), ey = dtClamp(DT.zy, H / (2 * DT.zz), H - H / (2 * DT.zz));   // لا يظهر خارج حدود المسرح
+  st.style.transform = 'translate(' + (W / 2).toFixed(1) + 'px,' + (H / 2).toFixed(1) + 'px) scale(' + DT.zz.toFixed(4) + ') translate(' + (-ex).toFixed(1) + 'px,' + (-ey).toFixed(1) + 'px)';
 }
 
 function dtPlace(el, x, y, z) {
@@ -655,16 +816,25 @@ function dtActions() {
       if (mg.lv > 0 && p.here && pg && pg.h && pg.lv > 0) a.push(['🥂 نخب', 'gtoast', DT.near.fx && dtDist(m, p) <= DT_REACH.toast ? 1 : 0, 1]);
       if (nt) a.push(['↩️ ضع الكأس', 'gput', 1, 0]);
     }
-    if (nt && mg.lv < 3) a.push(['🍷 املأ كأسي', 'gfill', 1, 0]);
-    if (nt && p.here && pg && pg.lv < 3) a.push(['🍷 املأ كأس شريكي', 'gfillp', dtDist(m, p) <= DT_REACH.pour ? 1 : 0, 1]);
+    if (nt) a.push(['🍹 المشروبات', 'menu', 1, 1]);
+    if (nt && mg.lv > 0) a.push(['🚰 أفرغ كأسي', 'gempty', 1, 0]);
+    if (mg.s) a.push(['🧍 قم من الكرسي', 'cstand', 1, 0]);
+    else {
+      var chp = { x: dtChX(me, mg.o), y: 0.5 };
+      if (dtDist(m, chp) <= DT_REACH.chair) {
+        if (!mg.o) a.push(['🪑 اسحب الكرسي', 'cpull', 1, 0]);
+        else a.push(['🪑 اجلس', 'csit', 1, 1], ['↩️ ادفع الكرسي', 'cpush', 1, 0]);
+      }
+    }
   }
   if (DT.walk) a.push(['⏹ توقف عن المشي معاً', 'walk0', 1, 0]);
-  else if (DT.near.k >= 1 && DT.near.fx && p.here) a.push(['🚶 امشِ معي', 'walk1', 1, 1]);
+  else if (DT.near.k >= 1 && DT.near.fx && p.here && !(DT.gl && DT.gl[me] && DT.gl[me].s)) a.push(['🚶 امشِ معي', 'walk1', 1, 1]);
   if (DT.near.k === 2 && DT.near.fx && p.here) a.push(['🤗 عناق', 'hug', 1, 0], ['🤝 مسك اليد', 'hands', 1, 0]);
   return a;
 }
 
 function dtDoAct(k) {
+  if (k === 'menu') { dtMenu(); return; }
   if (k === 'walk1') { dtWsSend({ t: 'walk', on: 1 }); return; }
   if (k === 'walk0') { dtWsSend({ t: 'walk', on: 0 }); return; }
   if (k === 'hug' || k === 'hands') { dtWsSend({ t: k }); dtGest(k); return; }
@@ -734,7 +904,7 @@ function dtFxDraw(ts, dt) {
 function dtLoop(ts) {
   DT.raf2 = requestAnimationFrame(dtLoop);
   if (!DT.root) return;
-  var dt = Math.min(0.05, (ts - (DT.lt || ts)) / 1000); DT.lt = ts;
+  var dt = Math.min(0.05, (ts - (DT.lt || ts)) / 1000); DT.lt = ts; DT.ts = ts;
   var m = DT.ch.m, p = DT.ch.p, b = DT.ob.ball, R = DT.ob.rose, C = DT.ob.candle;
 
   // حركتي: أمشي نحو الهدف بسرعة محدودة (أبطأ من حد الخادم)
@@ -761,7 +931,8 @@ function dtLoop(ts) {
   cp.style.opacity = p.here ? '1' : '0.38';
   [[cm, m], [cp, p]].forEach(function (z) {
     var av = z[0].firstChild.nextSibling;
-    av.style.transform = z[1].moving && !DT.still ? 'translateY(' + (-Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018).toFixed(1) + 'px)' : '';
+    var by2 = z[1].moving && !DT.still && !(z[1].sit > 0.02) ? -Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018 : 0, sd2 = (z[1].sit || 0) * DT.s * 0.36;   // قفزة المشي + نزول الرأس عند الجلوس
+    av.style.transform = by2 || sd2 ? 'translateY(' + (by2 + sd2).toFixed(1) + 'px)' : '';
   });
   // الأشياء
   if (b) dtPlace(DT.els.ball, b.x, b.y, Math.round(b.y * 100) - 1);
@@ -778,6 +949,7 @@ function dtLoop(ts) {
     dtPlace(DT.els.rose, pos.x, pos.y, Math.round(pos.y * 100) + 2);
     DT.els.rose.style.transform = 'translate(-50%,-70%)' + (off && !DT.still ? ' scale(' + (1 + Math.sin(ts / 160) * 0.08).toFixed(3) + ')' : '');
   }
+  dtCamera(dt);
   dtBodyDraw(ts);
   dtFxDraw(ts, dt);
   dtRenderActs();
@@ -796,6 +968,7 @@ function dtBindStage(st) {
   st.addEventListener('pointerdown', function (e) {
     if (e.button > 0) return;
     if (DT.walk && DT.walk.fol === DT.myId) { dtFlash('أنت تمشي مع شريكك، اضغط «توقف» لتتحكم بنفسك'); return; }
+    var sg = DT.gl && DT.gl[DT.myId]; if (sg && sg.s) { dtFlash('أنت جالس، اضغط «قم من الكرسي» لتتحرك'); return; }
     if (!DT.ws && DT.wsIdle) { DT.wsN = 0; dtWsOpen(); }     // عودة بعد إغلاق الخمول
     var p = dtPt(e), m = DT.ch.m;
     DT.drag = dtDist(p, m) < 0.09;                           // أمسكت شخصيتي: تتبع إصبعي بسرعة أعلى
@@ -837,7 +1010,7 @@ function dtBuild(id, j) {
   DT.ch = { m: { x: null, y: null, tx: 0.7, ty: 0.72, sx: -1, sy: -1, here: 1, moving: 0 }, p: { x: null, y: null, tx: 0.3, ty: 0.72, here: 0, moving: 0 } };
   dtSetPos(DT.ch.m, lowMine ? 0.3 : 0.7, 0.72, true);       // نفس مواضع البداية في الخادم
   dtSetPos(DT.ch.p, lowMine ? 0.7 : 0.3, 0.72, true);
-  DT.ob = {}; DT.gl = {}; DT.gd = {}; DT.gfx = {}; DT.pour = null; DT.bn = null; DT.lbt = 0; DT.near = { k: 0, fx: 1 }; DT.hearts = []; DT.glow = 0; DT.hz = 0; DT.sent = 0; DT.sig = '';
+  DT.ob = {}; DT.gl = {}; DT.gd = {}; DT.cx = {}; DT.zoomOn = 1; DT.zz = 1; DT.zx = null; DT.zy = null; DT.gfx = {}; DT.pour = null; DT.bn = null; DT.lbt = 0; DT.near = { k: 0, fx: 1 }; DT.hearts = []; DT.glow = 0; DT.hz = 0; DT.sent = 0; DT.sig = '';
   DT.simple = 0; DT.sm = null; DT.modeBtn = null;
   DT.dark = 0.34; DT.dTarget = 0.34; DT.wsN = 0; DT.wsIdle = 0; DT.drag = false; DT.fxNote = 0;
 
@@ -860,6 +1033,7 @@ function dtBuild(id, j) {
   [['🎲 سؤال', function () { api('date/ask', { id: DT.id }).then(function (r) { if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر السؤال')); }); }],
    ['🫧 نمط بسيط', function () { dtToggleMode(); }],
    ['💞 حركات', function () { if (typeof gstOpen === 'function') gstOpen(); }],
+   ['🔍 تقريب', function () { DT.zoomOn = DT.zoomOn ? 0 : 1; this.style.opacity = DT.zoomOn ? '1' : '0.5'; }],
    ['🚩 بلاغ', function () { if (window.relReport) relReport('date', DT.id); }],
    ['⤴️ خروج', function () { dtClose('خرجت من الموعد، يمكنك العودة إليه من نافذة الارتباط'); }],
    ['🏁 إنهاء', function () {
@@ -893,6 +1067,7 @@ function dtBuild(id, j) {
   area.appendChild(st);
   root.appendChild(area);
   DT.st = st; DT.fx = fxc;
+  st.style.transformOrigin = '0 0'; area.style.overflow = 'hidden';      // الكاميرا: التقريب داخل حدود منطقة المسرح فقط
 
   // النمط البسيط: فقاعتان فقط (مخفي افتراضياً، يُبدَّل من زر الأعلى ويُزامَن بين الطرفين)
   var sm = dtNode('div', 'position:absolute;inset-inline:0;display:none;align-items:center;justify-content:center;gap:6%;z-index:1;padding:0 10px');
