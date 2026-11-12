@@ -148,7 +148,8 @@ function dateOpen(id) {
    الخادم: src/scene.js (DateScene). الإحداثيات نسبية 0..1 على مسرح 4:3، والمسافة بعرض المسرح (y × 0.75).
    السحب أو النقر للمشي، والقرب يفتح العناق ومسك اليد، والأشياء: وردة تُسلَّم، كرة تُدفع، شمعة تُضيء. */
 var DT_LIM = { x0: 0.05, x1: 0.95, y0: 0.16, y1: 0.95 };   // نفس حدود الخادم
-var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20 };
+var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
+var DT_TBL = { x: 0.5, y: 0.46 };
 var DT_OFFER_MS = 20000;
 
 function dtDist(a, b) { return Math.hypot(a.x - b.x, (a.y - b.y) * 0.75); }
@@ -357,6 +358,7 @@ function dtFigure(g, c, pal, ts, here, link) {
     if (link && link.hug) { t = dtReach(sx, sy, link.x + d * s * 0.16, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
     else if (link && link.side === d) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
     else { hx = sx + d * s * 0.07 - sw * d * s * 0.05; hy = sy + s * 0.52 - Math.abs(sw) * s * 0.02; }
+    (c.hd || (c.hd = {}))[d] = [hx, hy];      // موضع اليد: يستخدمه رسم الكأس
     dtArm(g, sx, sy, hx, hy, pal, s);
   });
   g.globalAlpha = 1;
@@ -384,9 +386,143 @@ function dtBodyDraw(ts) {
   } else if (pose === 'hug') {
     lm = { hug: 1, x: px, y: py - s * 0.95 }; lp = { hug: 1, x: mx, y: my - s * 0.95 };
   }
+  if (dtDinner()) {
+    var kd = Math.min(0.1, (ts - (DT.lbt || ts)) / 1000); DT.lbt = ts;
+    dtDinnerTable(g, W, H, s, kd);
+    var hm = dtHoldLink('m', m, p, W, H, s, pose, lm), hp = dtHoldLink('p', p, m, W, H, s, pose, lp);
+    if (hm) lm = hm;
+    if (hp) lp = hp;
+  }
   var a = [m, DT_PAL.m, 1, lm], b = [p, DT_PAL.p, p.here, lp];
   var order = py < my ? [b, a] : [a, b];   // الأبعد أولاً
   order.forEach(function (z) { dtFigure(g, z[0], z[1], ts, z[2], z[3]); });
+}
+
+/* ---------- المرحلة 3: مشهد العشاء (كأس لكل شخص، الملء، الرشفة، النخب) ---------- */
+function dtDinner() { return DT.ty === 'عشاء رومانسي'; }
+function dtGlId(role) {                       // معرّف صاحب الكأس: 'm' أنا، 'p' شريكي
+  if (role === 'm') return DT.myId;
+  var k, id = 0; for (k in DT.gl) if (+k !== DT.myId) id = +k;
+  return id;
+}
+function dtGlTx(id) {                         // موضع الكأس على الطاولة: صاحب المعرّف الأصغر على اليسار
+  var k, lo = 1e15; for (k in DT.gl) if (+k < lo) lo = +k;
+  return id === lo ? 0.385 : 0.615;
+}
+function dtGlass(g, x, y, h, lv, tilt) {      // كأس نبيذ: القاعدة عند (x,y) والارتفاع h، ومستوى الشراب lv من 0 إلى 3
+  var w = h * 0.5, by = -h * 0.42, bh = h * 0.58;
+  function bowl() {
+    g.beginPath(); g.moveTo(-w * 0.5, by - bh);
+    g.quadraticCurveTo(-w * 0.55, by - bh * 0.12, 0, by);
+    g.quadraticCurveTo(w * 0.55, by - bh * 0.12, w * 0.5, by - bh); g.closePath();
+  }
+  g.save(); g.translate(x, y); if (tilt) g.rotate(tilt);
+  g.fillStyle = 'rgba(255,255,255,.55)'; g.beginPath(); g.ellipse(0, 0, w * 0.5, h * 0.05, 0, 0, 7); g.fill();
+  g.strokeStyle = 'rgba(255,255,255,.7)'; g.lineWidth = Math.max(1.2, h * 0.04); g.lineCap = 'round';
+  g.beginPath(); g.moveTo(0, 0); g.lineTo(0, by); g.stroke();
+  bowl(); g.fillStyle = 'rgba(255,255,255,.14)'; g.fill();
+  if (lv > 0.03) {
+    var top = by - bh * 0.8 * Math.min(1, lv / 3);
+    g.save(); bowl(); g.clip();
+    var wg = g.createLinearGradient(0, top, 0, by); wg.addColorStop(0, '#be123c'); wg.addColorStop(1, '#7f1d1d');
+    g.fillStyle = wg; g.fillRect(-w, top, w * 2, by - top + 1);
+    g.restore();
+  }
+  bowl(); g.strokeStyle = 'rgba(255,255,255,.75)'; g.lineWidth = Math.max(1, h * 0.03); g.stroke();
+  g.restore();
+}
+function dtBottle(g, x, y, h, a) {            // زجاجة تدور حول قاعدتها عند الصبّ
+  var w = h * 0.26;
+  g.save(); g.translate(x, y); g.rotate(a);
+  g.fillStyle = '#14532d';
+  g.beginPath(); g.moveTo(-w / 2, 0); g.lineTo(-w / 2, -h * 0.55);
+  g.quadraticCurveTo(-w / 2, -h * 0.68, -w * 0.2, -h * 0.74); g.lineTo(-w * 0.2, -h); g.lineTo(w * 0.2, -h); g.lineTo(w * 0.2, -h * 0.74);
+  g.quadraticCurveTo(w / 2, -h * 0.68, w / 2, -h * 0.55); g.lineTo(w / 2, 0); g.closePath(); g.fill();
+  g.fillStyle = '#f3dfe4'; g.fillRect(-w / 2, -h * 0.38, w, h * 0.18);
+  g.fillStyle = '#7f1d1d'; g.fillRect(-w * 0.2, -h, w * 0.4, h * 0.05);
+  g.restore();
+}
+function dtGlassPos(id, W, H, s) {            // فتحة الكأس الآن: في يد صاحبه أو على الطاولة
+  var G = DT.gl[id]; if (!G) return null;
+  var c = DT.ch[id === DT.myId ? 'm' : 'p'];
+  if (G.h && c.gk && c.hd && c.hd[c.gk.side]) { var hd = c.hd[c.gk.side]; return { x: hd[0], y: hd[1] - s * 0.30 }; }
+  return { x: dtGlTx(id) * W, y: H * 0.415 - s * 0.32 };
+}
+function dtDinnerTable(g, W, H, s, kd) {      // الزجاجة والكؤوس غير الممسوكة على الطاولة (تحت الشخصيتين)
+  var id, G, d, bx = W * 0.5, by = H * 0.445, bh = s * 0.62, a = 0, P = DT.pour, now = Date.now();
+  if (P && !DT.still && now < P.until) {
+    var tp = dtGlassPos(P.to, W, H, s), u = (now - P.t0) / (P.until - P.t0);
+    if (tp) a = (tp.x >= bx ? 1 : -1) * 0.85 * Math.min(1, Math.sin(Math.PI * u) * 2.2);
+  }
+  g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(bx, by + 2, bh * 0.2, bh * 0.06, 0, 0, 7); g.fill();
+  dtBottle(g, bx, by, bh, a);
+  DT.bn = { x: bx + bh * Math.sin(a), y: by - bh * Math.cos(a) };      // فوهة الزجاجة: منها يبدأ خيط الصبّ
+  for (id in DT.gl) {
+    G = DT.gl[id];
+    d = DT.gd[id]; if (d == null) d = G.lv;
+    d += (G.lv - d) * Math.min(1, kd * 4); DT.gd[id] = d;
+    if (!G.h) {
+      var gx = dtGlTx(+id) * W;
+      g.fillStyle = 'rgba(0,0,0,.22)'; g.beginPath(); g.ellipse(gx, H * 0.415 + 1, s * 0.1, s * 0.03, 0, 0, 7); g.fill();
+      dtGlass(g, gx, H * 0.415, s * 0.34, d, 0);
+    }
+  }
+}
+// وضع الإمساك بالكأس: يعيد رابطاً يحرّك الذراع (اليد الأقرب للشريك)، أو null إن لم يمسك كأساً أو كان في وضعية عناق/مسك يد
+function dtHoldLink(role, c, o, W, H, s, pose, pl) {
+  var id = dtGlId(role), G = DT.gl && DT.gl[id];
+  c.gk = null;
+  if (!G || !G.h || (role === 'p' && !c.here)) return null;
+  if (pose) { c.gk = { side: pl && pl.side ? -pl.side : -1, tilt: 0 }; return null; }   // الكأس في اليد الحرة
+  var fx = c.x * W, fy = c.y * H, ox = (o.x == null ? 0.5 : o.x) * W, oy = (o.y == null ? 0.7 : o.y) * H;
+  var sd = ox >= fx ? 1 : -1, hx = fx + sd * s * 0.34, hy = fy - s * 0.84, tilt = 0;
+  var now = Date.now(), f = DT.gfx[id];
+  if (f && !DT.still && now < f.until) {
+    var u = (now - f.t0) / (f.until - f.t0), e = Math.min(1, Math.sin(Math.PI * u) * 1.6);
+    if (f.k === 'sip') { hx += (fx + sd * s * 0.17 - hx) * e; hy += (fy - s * 1.36 - hy) * e; tilt = -sd * e * 0.8; }
+    else if (f.k === 'toast') { hx += ((fx + ox) / 2 - hx) * e; hy += ((fy + oy) / 2 - s * 0.9 - hy) * e; tilt = sd * e * 0.25; }
+  }
+  var lk = { side: sd, x: hx, y: hy, tilt: tilt };
+  c.gk = lk; return lk;
+}
+function dtDinnerFx(cx, W, H) {               // الكؤوس الممسوكة وخيط الصبّ وشرارة النخب فوق كل شيء
+  var s = DT.s, now = Date.now(), P = DT.pour, f = DT.gfx[DT.myId];
+  ['m', 'p'].forEach(function (role) {
+    var c = DT.ch[role], k = c.gk;
+    if (!k || !c.hd || !c.hd[k.side]) return;
+    var hd = c.hd[k.side], dl = DT.gd[dtGlId(role)];
+    cx.globalAlpha = role === 'p' && !c.here ? 0.38 : 1;
+    dtGlass(cx, hd[0], hd[1] + s * 0.04, s * 0.36, dl == null ? 0 : dl, k.tilt || 0);
+  });
+  cx.globalAlpha = 1;
+  if (P && !DT.still && now < P.until && DT.bn) {
+    var u = (now - P.t0) / (P.until - P.t0), tp = dtGlassPos(P.to, W, H, s);
+    if (tp && u > 0.2 && u < 0.95) {
+      cx.strokeStyle = '#be123c'; cx.lineWidth = Math.max(1.5, s * 0.03); cx.lineCap = 'round';
+      cx.beginPath(); cx.moveTo(DT.bn.x, DT.bn.y);
+      cx.quadraticCurveTo((DT.bn.x + tp.x) / 2 + (tp.x >= DT.bn.x ? 1 : -1) * s * 0.05, DT.bn.y + s * 0.05, tp.x, tp.y);
+      cx.stroke();
+    }
+  }
+  if (f && f.k === 'toast' && !DT.still && now < f.until) {
+    var q = (now - f.t0) / (f.until - f.t0), m = DT.ch.m, p = DT.ch.p;
+    if (q > 0.4 && q < 0.75 && m.gk && p.gk && m.hd && p.hd && m.hd[m.gk.side] && p.hd[p.gk.side]) {
+      var A = m.hd[m.gk.side], B = p.hd[p.gk.side], X = (A[0] + B[0]) / 2, Y = (A[1] + B[1]) / 2 - s * 0.3, i, r0 = s * 0.08, r1 = s * 0.2;
+      cx.globalAlpha = Math.max(0, 1 - Math.abs(q - 0.55) / 0.2);
+      cx.strokeStyle = '#fde68a'; cx.lineWidth = 2; cx.lineCap = 'round';
+      for (i = 0; i < 8; i++) {
+        var an = i * Math.PI / 4;
+        cx.beginPath(); cx.moveTo(X + Math.cos(an) * r0, Y + Math.sin(an) * r0); cx.lineTo(X + Math.cos(an) * r1, Y + Math.sin(an) * r1); cx.stroke();
+      }
+      cx.globalAlpha = 1;
+    }
+  }
+}
+function dtGlEv(j) {                          // حدث من الخادم: رشفة أو صبّ أو نخب
+  var now = Date.now();
+  if (j.ev === 'sip') DT.gfx[j.by] = { k: 'sip', t0: now, until: now + 2000 };
+  else if (j.ev === 'toast') { DT.gfx[j.by] = DT.gfx[j.to] = { k: 'toast', t0: now, until: now + 2200 }; dtFlash('🥂 نخب!'); }
+  else if (j.ev === 'pour') DT.pour = { to: j.to, t0: now, until: now + 1300 };
 }
 
 function dtPlace(el, x, y, z) {
@@ -456,6 +592,7 @@ function dtOnMsg(j) {
     DT.sig = '';
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
+    DT.gl = j.gl || {}; DT.gd = {};
   } else if (j.t === 'mode') {
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     dtFlash(DT.simple ? '🫧 النمط البسيط: فقاعتان للطرفين' : '🎭 عاد المشهد المتحرك');
@@ -479,6 +616,10 @@ function dtOnMsg(j) {
     dtFlash(j.on ? (j.lead === DT.myId ? '🚶 تمشيان معاً، وأنت من يقود' : '🚶 تمشيان معاً، شريكك يقودك') : '⏹ توقف المشي المشترك');
   } else if (j.t === 'g') {
     DT.pose = { k: j.k, until: Date.now() + 7000 };
+  } else if (j.t === 'gl') {
+    DT.gl = j.gl || {}; DT.sig = '';
+  } else if (j.t === 'gs') {
+    dtGlEv(j);
   } else if (j.t === 'e') {
     dtFlash('⚠️ ' + String(j.m || '').slice(0, 80));
   }
@@ -506,6 +647,17 @@ function dtActions() {
     } else if (!R.by && !off && dtDist(m, R) <= DT_REACH.touch) a.push(['🌹 التقط الوردة', 'pick', 1, 1]);
   }
   if (C && dtDist(m, C) <= DT_REACH.candle) a.push([C.on ? '🕯️ أطفئ الشمعة' : '🕯️ أشعل الشمعة', 'cd', 1, 0]);
+  if (dtDinner() && DT.gl && DT.gl[me]) {
+    var mg = DT.gl[me], pg = DT.gl[dtGlId('p')], nt = dtDist(m, DT_TBL) <= DT_REACH.table;
+    if (!mg.h) { if (nt) a.push(['🥂 خذ كأسك', 'gtake', 1, 0]); }
+    else {
+      if (mg.lv > 0) a.push(['🍷 ارتشف', 'gsip', 1, 0]);
+      if (mg.lv > 0 && p.here && pg && pg.h && pg.lv > 0) a.push(['🥂 نخب', 'gtoast', DT.near.fx && dtDist(m, p) <= DT_REACH.toast ? 1 : 0, 1]);
+      if (nt) a.push(['↩️ ضع الكأس', 'gput', 1, 0]);
+    }
+    if (nt && mg.lv < 3) a.push(['🍷 املأ كأسي', 'gfill', 1, 0]);
+    if (nt && p.here && pg && pg.lv < 3) a.push(['🍷 املأ كأس شريكي', 'gfillp', dtDist(m, p) <= DT_REACH.pour ? 1 : 0, 1]);
+  }
   if (DT.walk) a.push(['⏹ توقف عن المشي معاً', 'walk0', 1, 0]);
   else if (DT.near.k >= 1 && DT.near.fx && p.here) a.push(['🚶 امشِ معي', 'walk1', 1, 1]);
   if (DT.near.k === 2 && DT.near.fx && p.here) a.push(['🤗 عناق', 'hug', 1, 0], ['🤝 مسك اليد', 'hands', 1, 0]);
@@ -576,6 +728,7 @@ function dtFxDraw(ts, dt) {
     });
     cx.globalAlpha = 1;
   }
+  if (dtDinner() && !DT.simple) dtDinnerFx(cx, w, h);
 }
 
 function dtLoop(ts) {
@@ -684,7 +837,7 @@ function dtBuild(id, j) {
   DT.ch = { m: { x: null, y: null, tx: 0.7, ty: 0.72, sx: -1, sy: -1, here: 1, moving: 0 }, p: { x: null, y: null, tx: 0.3, ty: 0.72, here: 0, moving: 0 } };
   dtSetPos(DT.ch.m, lowMine ? 0.3 : 0.7, 0.72, true);       // نفس مواضع البداية في الخادم
   dtSetPos(DT.ch.p, lowMine ? 0.7 : 0.3, 0.72, true);
-  DT.ob = {}; DT.near = { k: 0, fx: 1 }; DT.hearts = []; DT.glow = 0; DT.hz = 0; DT.sent = 0; DT.sig = '';
+  DT.ob = {}; DT.gl = {}; DT.gd = {}; DT.gfx = {}; DT.pour = null; DT.bn = null; DT.lbt = 0; DT.near = { k: 0, fx: 1 }; DT.hearts = []; DT.glow = 0; DT.hz = 0; DT.sent = 0; DT.sig = '';
   DT.simple = 0; DT.sm = null; DT.modeBtn = null;
   DT.dark = 0.34; DT.dTarget = 0.34; DT.wsN = 0; DT.wsIdle = 0; DT.drag = false; DT.fxNote = 0;
 
