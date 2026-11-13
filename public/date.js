@@ -1,12 +1,11 @@
 #!/usr/bin/env node
-/* استيفاء مستقل عن معدل الإطارات: الشاشات 90/120Hz تعطي نفس السرعة والنعومة كشاشات 60Hz.
-   الاستعمال:  node patch-fps.js public/date.js
-   يحفظ نسخة date.js.fps.bak ويتوقف بخطأ إن لم يجد موضعاً مطابقاً. يعمل قبل patch-head.js أو بعده. */
+/* حركة أحيّ: ركبة في المشي + زنبرك للرأس (يتأخر عن الجسم عند البدء ويتجاوز قليلاً عند التوقف ويميل عكس الحركة).
+   الاستعمال:  node patch-motion.js public/date.js
+   جزء الرأس يتطلب أن يكون patch-head.js مطبّقاً (يعتمد على dtHeadXf). يحفظ نسخة date.js.motion.bak. */
 const fs = require('fs');
 const path = process.argv[2] || 'public/date.js';
 let s = fs.readFileSync(path, 'utf8');
 const orig = s;
-if (s.includes('function dtK(')) { console.log('مطبّق مسبقاً'); process.exit(0); }
 
 function rep(oldS, newS) {
   const n = s.split(oldS).length - 1;
@@ -14,38 +13,52 @@ function rep(oldS, newS) {
   s = s.split(oldS).join(newS);
 }
 
-// دالة المساعدة: نسبة الاقتراب في إطار مدته t ثانية بمعدل r (تعطي نفس النتيجة مهما كان معدل الإطارات)
-rep(`function dtClamp(v, a, b) { return v < a ? a : v > b ? b : v; }`,
-    `function dtClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
-function dtK(r, t) { return 1 - Math.exp(-r * t); }`);
+/* ===== 1) ركبة: الساق قطعتان (فخذ وساق) والركبة ترتفع عند رفع القدم ===== */
+if (s.includes('var lf = q > 0')) {
+  console.log('الركبة مطبّقة مسبقاً، تخطي');
+} else {
+  rep(`    g.beginPath(); g.moveTo(hx, hipY); g.lineTo(ex, ey); g.stroke();`,
+      `    var lf = q > 0 ? q : 0, kx = hx + q * s * 0.11, ky = (hipY + ey) / 2 - lf * s * 0.05;     // الركبة ترتفع وتتقدم مع رفع القدم
+    g.beginPath(); g.moveTo(hx, hipY); g.lineTo(kx, ky); g.stroke();
+    g.lineWidth = s * 0.17; g.beginPath(); g.moveTo(kx, ky); g.lineTo(ex, ey); g.stroke();`);
+  console.log('الركبة طُبّقت');
+}
 
-// التفات الرأس: كان 0.14 لكل إطار (≈ معدل 9 عند 60Hz)
-rep(`c.lk = still ? lt : (c.lk || 0) + (lt - (c.lk || 0)) * 0.14;`,
-    `c.lk = still ? lt : (c.lk || 0) + (lt - (c.lk || 0)) * dtK(9, DT.dt || 0.0167);`);
-rep(`DT.lt = ts; DT.ts = ts;`, `DT.lt = ts; DT.ts = ts; DT.dt = dt;`);
+/* ===== 2) زنبرك الرأس ===== */
+if (s.includes('dtHeadXf0')) {
+  console.log('زنبرك الرأس مطبّق مسبقاً، تخطي');
+} else if (!s.includes('function dtHeadXf(role, ts) {')) {
+  console.warn('تحذير: dtHeadXf غير موجودة. شغّل patch-head.js أولاً ثم أعد تشغيل هذا السكربت (تخطيت زنبرك الرأس).');
+} else {
+  rep(`function dtHeadXf(role, ts) {`, `function dtHeadXf0(role, ts) {`);
+  rep(`function dtLoop(ts) {`, `/* زنبرك الرأس: الرأس يتأخر عن الجسم عند التحرك (يُحقن جزء من إزاحة الجسم كل إطار ثم يعيده الزنبرك)،
+   فيميل عكس اتجاه المشي، ويتجاوز موضعه قليلاً عند التوقف. المعاملات: K صلابة، D تخميد (≈0.5 فيتجاوز قليلاً) */
+function dtHeadXf(role, ts) {
+  var T = dtHeadXf0(role, ts);
+  if (DT.still) return T;
+  var c = DT.ch[role], q = c.hsp || (c.hsp = { x: 0, y: 0, r: 0, vx: 0, vy: 0, vr: 0, px: null, py: null });
+  var dt = Math.min(0.033, DT.dt || 0.0167), s = DT.s, W = DT.sw, H = DT.sh;
+  var cx0 = c.x == null ? 0.5 : c.x, cy0 = c.y == null ? 0.7 : c.y, K = 170, D = 13, i, h = dt / 2;
+  if (q.px != null) {
+    var dxb = dtClamp((cx0 - q.px) * W, -s * 0.2, s * 0.2), dyb = dtClamp((cy0 - q.py) * H, -s * 0.2, s * 0.2);
+    q.x -= dxb * 0.5; q.y -= dyb * 0.3; q.r -= dxb / s * 14;
+  }
+  q.px = cx0; q.py = cy0;
+  for (i = 0; i < 2; i++) {
+    q.vx += (-K * q.x - D * q.vx) * h; q.x += q.vx * h;
+    q.vy += (-K * q.y - D * q.vy) * h; q.y += q.vy * h;
+    q.vr += (-K * q.r - D * q.vr) * h; q.r += q.vr * h;
+  }
+  q.x = dtClamp(q.x, -s * 0.12, s * 0.12); q.y = dtClamp(q.y, -s * 0.08, s * 0.08); q.r = dtClamp(q.r, -8, 8);
+  return [T[0] + q.x, T[1] + q.y, T[2] + q.r];
+}
 
-// حركة الـ bokeh: كانت تتحرك بخطوة ثابتة لكل إطار
-rep(`var c = DT.root.querySelector('canvas'), x = c.getContext('2d'), P = [], w = 0, h = 0, still = dtReduce();`,
-    `var c = DT.root.querySelector('canvas'), x = c.getContext('2d'), P = [], w = 0, h = 0, still = dtReduce(), lt = 0;`);
-rep(`  function frame() {
-    x.clearRect(0, 0, w, h);`, `  function frame(ts) {
-    var fk = ts && lt ? Math.min(3, (ts - lt) / 16.667) : 1; lt = ts || lt;      // 1 = إطار 60Hz
-    x.clearRect(0, 0, w, h);`);
-rep(`if (!still) { p.x += p.vx; p.y += p.vy;`, `if (!still) { p.x += p.vx * fk; p.y += p.vy * fk;`);
+function dtLoop(ts) {`);
+  console.log('زنبرك الرأس طُبّق');
+}
 
-// بقية الاستيفاءات كانت خطية بـ dt: تحويلها إلى أسيّة (ثابتة عند أي dt)
-rep(`var k = Math.min(1, dt * 10);`, `var k = dtK(10, dt);`);
-rep(`b.x += (b.tx - b.x) * Math.min(1, dt * 12); b.y += (b.ty - b.y) * Math.min(1, dt * 12);`,
-    `b.x += (b.tx - b.x) * dtK(12, dt); b.y += (b.ty - b.y) * dtK(12, dt);`);
-rep(`Math.min(1, kw * 9)`, `dtK(9, kw)`);
-rep(`Math.min(1, kd * 6)`, `dtK(6, kd)`);
-rep(`Math.min(1, kd * 7)`, `dtK(7, kd)`);
-rep(`Math.min(1, kd * 4)`, `dtK(4, kd)`);
-rep(`Math.min(1, kd * 5)`, `dtK(5, kd)`);
-rep(`var k = Math.min(1, dt * 2.5);`, `var k = dtK(2.5, dt);`);
-rep(`var k = still ? 1 : Math.min(1, dt * 2.2);`, `var k = still ? 1 : dtK(2.2, dt);`);
-rep(`(still ? 1 : Math.min(1, dt * 3))`, `(still ? 1 : dtK(3, dt))`);
-
-fs.writeFileSync(path + '.fps.bak', orig);
-fs.writeFileSync(path, s);
-console.log('تم. النسخة الاحتياطية:', path + '.fps.bak');
+if (s !== orig) {
+  fs.writeFileSync(path + '.motion.bak', orig);
+  fs.writeFileSync(path, s);
+  console.log('تم. النسخة الاحتياطية:', path + '.motion.bak');
+}
