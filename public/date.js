@@ -154,6 +154,11 @@ var DT_OFFER_MS = 20000;
 
 function dtDist(a, b) { return Math.hypot(a.x - b.x, (a.y - b.y) * 0.75); }
 function dtClamp(v, a, b) { return v < a ? a : v > b ? b : v; }
+/* ---------- أنيميشن: دوال مساعدة ---------- */
+function dtEase(u) { u = u < 0 ? 0 : u > 1 ? 1 : u; return u * u * (3 - 2 * u); }
+function dtEnv(u, a, b) { return u < a ? dtEase(u / a) : u < b ? 1 : dtEase(1 - (u - b) / (1 - b)); }   // يصعد بنعومة، يثبت، ثم يهبط
+function dtBreath(ts, c) { return Math.sin(ts / 1500 + (c === DT.ch.p ? 2.1 : 0)) * (1 - (c.wa || 0)); }   // تنفس: يخفت أثناء المشي
+function dtSitDy(c, s) { var q = c.sit || 0; return q * s * 0.36 + (q > 0.02 && q < 0.98 ? Math.sin(Math.PI * q) * s * 0.035 : 0); }   // نزول الجلوس مع انحناء بسيط في المنتصف
 
 var DT_SVG = {
   rose: '<svg viewBox="0 0 40 64" width="100%" height="100%"><path d="M20 28C20 42 18 54 18 62" stroke="#16a34a" stroke-width="3.2" fill="none" stroke-linecap="round"/><path d="M18 48C9 46 7 40 7 40C14 40 18 44 18 48Z" fill="#22c55e"/><circle cx="20" cy="18" r="12" fill="#e11d48"/><path d="M12 17C15 7 25 7 28 17C25 13 15 13 12 17Z" fill="#fb7185"/><path d="M20 11C25 11 28 16 23 20C19 23 14 20 16 16" stroke="#9f1239" stroke-width="2" fill="none" stroke-linecap="round"/></svg>',
@@ -325,11 +330,13 @@ function dtArm(g, sx, sy, hx, hy, pal, s) {
 function dtFigureFront(g, c, pal, ts, here, link, fa) {
   var W = DT.sw, H = DT.sh, s = DT.s;
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
-  var sit = c.sit || 0, sdy = sit * s * 0.36;      // جلوس: ينزل الجسم نحو المقعد
-  var mv = c.moving && !DT.still && sit < 0.02;
-  var sw = mv ? Math.sin(ts / 110 + (c === DT.ch.p ? 1.3 : 0)) : 0;
-  var bob = mv ? Math.abs(Math.sin(ts / 110)) * H * 0.018 : 0;
-  var hipY = fy - s * 0.66 - bob * 0.5 + sdy, shY = fy - s * 1.16 - bob + sdy;
+  var sit = c.sit || 0, sdy = dtSitDy(c, s);      // جلوس: ينزل الجسم نحو المقعد
+  var wa = DT.still || sit > 0.02 ? 0 : (c.wa || 0);     // شدة المشي: تزداد وتخفت تدريجياً
+  var sw = wa * Math.sin(ts / 110 + (c === DT.ch.p ? 1.3 : 0));
+  var bob = wa * Math.abs(Math.sin(ts / 110)) * H * 0.018;
+  var br = DT.still ? 0 : dtBreath(ts, c) * s * 0.012;    // تنفس خفيف
+  var ph = c === DT.ch.p ? 2.1 : 0, ia = DT.still ? 0 : 1 - (c.wa || 0);
+  var hipY = fy - s * 0.66 - bob * 0.5 + sdy, shY = fy - s * 1.16 - bob + sdy - br;
   g.globalAlpha = (here ? 1 : 0.38) * (fa == null ? 1 : fa);
   g.fillStyle = 'rgba(0,0,0,.30)';
   g.beginPath(); g.ellipse(fx, fy + s * 0.03, s * 0.42, s * 0.11, 0, 0, 7); g.fill();
@@ -342,7 +349,7 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
     g.fillStyle = pal.shoe;
     g.beginPath(); g.ellipse(ex + d * s * 0.02, ey + s * 0.01, s * 0.12, s * 0.06, 0, 0, 7); g.fill();
   });
-  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob + sdy, s * 0.14, s * 0.26);
+  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob + sdy - br, s * 0.14, s * 0.26);
   var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
   g.fillStyle = gr;
   g.beginPath();
@@ -358,7 +365,7 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
     var sx = fx + d * s * 0.31, sy = shY + s * 0.06, hx, hy, t;
     if (link && link.hug) { t = dtReach(sx, sy, link.x + d * s * 0.16, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
     else if (link && link.side === d) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
-    else { hx = sx + d * s * 0.07 - sw * d * s * 0.05; hy = sy + s * 0.52 - Math.abs(sw) * s * 0.02; }
+    else { hx = sx + d * s * 0.07 - sw * d * s * 0.05 + d * Math.sin(ts / 2100 + ph + d) * s * 0.012 * ia; hy = sy + s * 0.52 - Math.abs(sw) * s * 0.02 + Math.sin(ts / 1700 + ph - d) * s * 0.008 * ia; }
     (c.hd || (c.hd = {}))[d] = [hx, hy];      // موضع اليد: يستخدمه رسم الكأس
     dtArm(g, sx, sy, hx, hy, pal, s);
   });
@@ -368,7 +375,8 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
 function dtFigureSide(g, c, pal, ts, here, link, ta) {
   var W = DT.sw, H = DT.sh, s = DT.s, dir = c.sdir || 1;
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
-  var hipY = fy - s * 0.30, shY = fy - s * 0.80, kx = fx + dir * s * 0.42;
+  var br = DT.still ? 0 : dtBreath(ts, c) * s * 0.010, ia = DT.still ? 0 : 1 - (c.wa || 0), ph = c === DT.ch.p ? 2.1 : 0;
+  var hipY = fy - s * 0.30, shY = fy - s * 0.80 - br, kx = fx + dir * s * 0.42;
   g.globalAlpha = (here ? 1 : 0.38) * ta;
   g.fillStyle = 'rgba(0,0,0,.30)';
   g.beginPath(); g.ellipse(fx + dir * s * 0.1, fy + s * 0.03, s * 0.5, s * 0.11, 0, 0, 7); g.fill();
@@ -391,7 +399,7 @@ function dtFigureSide(g, c, pal, ts, here, link, ta) {
   g.closePath(); g.fill();
   var sx = fx, sy = shY + s * 0.06, hx, hy, t;                                                   // الذراع القريبة من الطاولة
   if (link && link.side === dir) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
-  else { hx = fx + dir * s * 0.30; hy = hipY - s * 0.04; }                                       // اليد على الفخذ
+  else { hx = fx + dir * s * 0.30 + dir * Math.sin(ts / 2300 + ph) * s * 0.010 * ia; hy = hipY - s * 0.04 + Math.sin(ts / 1900 + ph) * s * 0.006 * ia; }   // اليد على الفخذ
   c.hd = c.hd || {}; c.hd[1] = c.hd[-1] = [hx, hy];
   dtArm(g, sx, sy, hx, hy, pal, s);
   g.globalAlpha = 1;
@@ -414,6 +422,8 @@ function dtBodyDraw(ts) {
   var c = DT.bd; if (!c || !DT.sw || DT.simple) return;
   var g = DT.bdx || (DT.bdx = c.getContext('2d'));
   var W = DT.sw, H = DT.sh, s = DT.s;
+  var kw = Math.min(0.1, (ts - (DT.lwt || ts)) / 1000); DT.lwt = ts;
+  [DT.ch.m, DT.ch.p].forEach(function (q) { q.wa = (q.wa || 0) + ((q.moving ? 1 : 0) - (q.wa || 0)) * Math.min(1, kw * 9); });   // بدء المشي وتوقفه بنعومة
   g.setTransform(DT.dpr, 0, 0, DT.dpr, 0, 0);
   g.clearRect(0, 0, W, H);
   if (DT.bgc) g.drawImage(DT.bgc, 0, 0, W, H);
@@ -621,9 +631,12 @@ function dtHoldLink(role, c, o, W, H, s, pose, pl) {
   var sd = ox >= fx ? 1 : -1, hx = fx + sd * s * 0.34, hy = fy - s * 0.84, tilt = 0;
   var now = Date.now(), f = DT.gfx[id];
   if (f && !DT.still && now < f.until) {
-    var u = (now - f.t0) / (f.until - f.t0), e = Math.min(1, Math.sin(Math.PI * u) * 1.6);
-    if (f.k === 'sip') { hx += (fx + sd * s * 0.17 - hx) * e; hy += (fy - s * 1.36 - hy) * e; tilt = -sd * e * 0.8; }
-    else if (f.k === 'toast') { hx += ((fx + ox) / 2 - hx) * e; hy += ((fy + oy) / 2 - s * 0.9 - hy) * e; tilt = sd * e * 0.25; }
+    var u = (now - f.t0) / (f.until - f.t0), e;
+    if (f.k === 'sip') { e = dtEnv(u, 0.3, 0.62); hx += (fx + sd * s * 0.17 - hx) * e; hy += (fy - s * 1.36 - hy) * e; tilt = -sd * e * 0.8; }
+    else if (f.k === 'toast') {
+      e = dtEnv(u, 0.38, 0.7); hx += ((fx + ox) / 2 - hx) * e; hy += ((fy + oy) / 2 - s * 0.9 - hy) * e; tilt = sd * e * 0.25;
+      if (u > 0.5 && u < 0.62) hy -= Math.sin((u - 0.5) / 0.12 * Math.PI) * s * 0.03;      // ارتداد صغير لحظة التقاء الكأسين
+    }
   }
   var lk = { side: sd, x: hx, y: hy, tilt: tilt };
   c.gk = lk; return lk;
@@ -1043,6 +1056,10 @@ function dtCamera(dt) {
     z = 1 + dtClamp((0.42 - dtDist(m, p)) / 0.30, 0, 1) * 0.55;
     mx = (m.x + p.x) / 2 * W; my = (m.y + p.y) / 2 * H - s * 0.7;
   }
+  var tf = dtDinner() && DT.gfx && DT.gfx[DT.myId];
+  if (tf && tf.k === 'toast' && !DT.still && !DT.simple && p.here && p.x != null && Date.now() < tf.until) {   // تقريب لحظة النخب
+    z = Math.max(z, 1.3); mx = (m.x + p.x) / 2 * W; my = (m.y + p.y) / 2 * H - s * 0.9;
+  }
   if (DT.zx == null) { DT.zx = W / 2; DT.zy = H / 2; }
   var k = Math.min(1, dt * 2.5);
   DT.zz += (z - DT.zz) * k; DT.zx += (mx - DT.zx) * k; DT.zy += (my - DT.zy) * k;
@@ -1299,15 +1316,32 @@ function dtLoop(ts) {
   dtPlace(cm, m.x, m.y, Math.round(m.y * 100));
   dtPlace(cp, p.x == null ? 0.5 : p.x, p.y == null ? 0.7 : p.y, Math.round((p.y || 0.7) * 100));
   cp.style.opacity = p.here ? '1' : '0.38';
-  [[cm, m], [cp, p]].forEach(function (z) {
-    var av = z[0].firstChild.nextSibling;
-    var by2 = z[1].moving && !DT.still && !(z[1].sit > 0.02) ? -Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018 : 0, sd2 = (z[1].sit || 0) * DT.s * 0.36;   // قفزة المشي + نزول الرأس عند الجلوس
-    var sx2 = (z[1].sit || 0) * (z[1].sdir || 0) * DT.s * 0.10, rt = (z[1].sit || 0) * (z[1].sdir || 0) * 5;   // يميل الرأس نحو الطاولة عند الجلوس
-    av.style.transform = by2 || sd2 || sx2 ? 'translate(' + sx2.toFixed(1) + 'px,' + (by2 + sd2).toFixed(1) + 'px) rotate(' + rt.toFixed(1) + 'deg)' : '';
+  [[cm, m, 'm'], [cp, p, 'p']].forEach(function (z) {
+    var av = z[0].firstChild.nextSibling, c = z[1], sit = c.sit || 0;
+    var wa = DT.still || sit > 0.02 ? 0 : (c.wa || 0), ia = DT.still ? 0 : 1 - (c.wa || 0), ph = z[2] === 'p' ? 2.1 : 0;
+    var by2 = -wa * Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018, sd2 = dtSitDy(c, DT.s);   // قفزة المشي + نزول الرأس عند الجلوس
+    var sx2 = sit * (c.sdir || 0) * DT.s * 0.10, rt = sit * (c.sdir || 0) * 5;           // يميل الرأس نحو الطاولة عند الجلوس
+    if (!DT.still) {
+      by2 -= Math.sin(ts / 1500 + ph) * DT.s * 0.012 * ia;                                // تنفس: الرأس يعلو مع الكتفين
+      rt += (Math.sin(ts / 2300 + ph) * 1.6 + Math.sin(ts / 877 + ph) * 0.6) * ia;        // ميل بسيط متقطع
+      if (dtDinner() && DT.gfx) {
+        var gid = dtGlId(z[2]), gf = DT.gfx[gid], now2 = Date.now(), ef = DT.ef && DT.ef[gid], eid;
+        if (gf && now2 < gf.until && gf.k === 'sip') {                                     // رشفة: يرتفع الرأس ويميل للخلف قليلاً
+          var e2 = dtEnv((now2 - gf.t0) / (gf.until - gf.t0), 0.3, 0.62);
+          by2 -= e2 * DT.s * 0.025; rt -= (c.gk ? c.gk.side : 1) * e2 * 4;
+        }
+        if (ef && now2 < ef.until && ef.k === 'bite') by2 += Math.sin(Math.PI * dtEase((now2 - ef.t0) / (ef.until - ef.t0))) * DT.s * 0.025;   // إيماءة عند اللقمة
+        for (eid in DT.ef) {                                                                // من يُطعَم يميل نحو اللقمة
+          var fe = DT.ef[eid];
+          if (fe.k === 'feed' && fe.to === gid && now2 < fe.until) by2 += Math.sin(Math.PI * dtEase((now2 - fe.t0) / (fe.until - fe.t0))) * DT.s * 0.02;
+        }
+      }
+    }
+    av.style.transform = by2 || sd2 || sx2 || rt ? 'translate(' + sx2.toFixed(1) + 'px,' + (by2 + sd2).toFixed(1) + 'px) rotate(' + rt.toFixed(1) + 'deg)' : '';
   });
   // الأشياء
   if (b) dtPlace(DT.els.ball, b.x, b.y, Math.round(b.y * 100) - 1);
-  if (C) { dtPlace(DT.els.candle, C.x, C.y, Math.round(C.y * 100)); DT.els.flame.style.opacity = C.on ? '1' : '0'; }
+  if (C) { dtPlace(DT.els.candle, C.x, C.y, Math.round(C.y * 100)); DT.els.flame.style.opacity = C.on ? (DT.still ? '1' : (0.9 + Math.sin(ts / 70) * 0.05 + Math.sin(ts / 130) * 0.05).toFixed(2)) : '0'; }
   if (R) {
     var now = Date.now() + (DT.soff || 0), pos = null, holder = null;
     var off = R.offer && now - R.ot <= DT_OFFER_MS;
