@@ -166,7 +166,7 @@ function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img
 
 
 /* ---------- وجوه مرسومة بدل صور الملف الشخصي: البشرة والشعر والتسريحة من معرّف الشخص ---------- */
-var DT_SKIN = ['#f6d3b8', '#eebd9a', '#d9a07a', '#b97a56', '#8d5a3b'];
+var DT_SKIN = ['#fde8d8', '#fbe0cb', '#f9d8c0', '#fce3d2', '#f8d5bc'];   // بشرة فاتحة فقط
 var DT_HAIR = ['#2b1a16', '#4a2c1a', '#7a4a22', '#1f2937', '#a0522d'];
 var DT_EYE = ['#4a2c1a', '#1f2937', '#6b4a1f', '#2f6b4f', '#3b6fb6'], DT_FID = 0;
 function dtShade(hex, k) {                      // k < 0 أغمق، k > 0 أفتح
@@ -177,7 +177,7 @@ function dtShade(hex, k) {                      // k < 0 أغمق، k > 0 أفت
 function dtFaceSvg(seed) {
   var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_SKIN[h % 5], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 3;
   var bd = ((h >>> 12) % 4) * 0.7, ec = DT_EYE[(h >>> 16) % 5], fr = ((h >>> 20) % 3) === 0;
-  var id = 'df' + (++DT_FID) + '_', skD = dtShade(sk, -0.2), skL = dtShade(sk, 0.35), hcD = dtShade(hc, -0.4), hcL = dtShade(hc, 0.4);
+  var id = 'df' + (++DT_FID) + '_', skD = dtShade(sk, -0.09), skL = dtShade(sk, 0.4), hcD = dtShade(hc, -0.4), hcL = dtShade(hc, 0.4);
   var defs = '<defs>' +
     '<radialGradient id="' + id + 's" cx="38%" cy="30%" r="88%"><stop offset="0" stop-color="' + skL + '"/><stop offset=".5" stop-color="' + sk + '"/><stop offset="1" stop-color="' + skD + '"/></radialGradient>' +
     '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + hcL + '"/><stop offset=".45" stop-color="' + hc + '"/><stop offset="1" stop-color="' + hcD + '"/></linearGradient>' +
@@ -203,10 +203,10 @@ function dtFaceSvg(seed) {
       : '<path d="M9 54Q4 9 50 7Q96 9 91 54Q82 31 50 27Q18 31 9 54Z" fill="url(#' + id + 'h)"/><path d="M30 14Q50 8 70 14" stroke="' + hcL + '" stroke-width="2.2" fill="none" opacity=".55" stroke-linecap="round"/>';
   var frk = fr ? '<g fill="' + skD + '" opacity=".55"><circle cx="30" cy="66" r=".8"/><circle cx="35" cy="69" r=".8"/><circle cx="27" cy="71" r=".8"/><circle cx="70" cy="66" r=".8"/><circle cx="65" cy="69" r=".8"/><circle cx="73" cy="71" r=".8"/></g>' : '';
   return '<svg viewBox="0 0 100 100" width="100%" height="100%" style="display:block">' + defs +
-    '<rect width="100" height="100" fill="' + skD + '"/>' + back +
+    '<rect width="100" height="100" fill="' + sk + '"/>' + back +
     '<ellipse cx="14.5" cy="59" rx="4.6" ry="7.2" fill="' + sk + '"/><ellipse cx="14.5" cy="59.5" rx="2" ry="4.2" fill="' + skD + '" opacity=".4"/>' +
     '<ellipse cx="85.5" cy="59" rx="4.6" ry="7.2" fill="' + sk + '"/><ellipse cx="85.5" cy="59.5" rx="2" ry="4.2" fill="' + skD + '" opacity=".4"/>' +
-    '<ellipse cx="50" cy="58" rx="35" ry="38" fill="url(#' + id + 's)"/>' + bun + front +
+    '<ellipse cx="50" cy="58" rx="35" ry="38" fill="' + sk + '"/><ellipse cx="50" cy="58" rx="35" ry="38" fill="url(#' + id + 's)"/>' + bun + front +
     '<path d="M22 44Q32 38.5 42 42.5M58 42.5Q68 38.5 78 44" stroke="' + hc + '" stroke-width="2.9" fill="none" stroke-linecap="round"/>' +
     eye(33, -1) + eye(67, 1) +
     '<ellipse cx="24" cy="70" rx="9" ry="6" fill="url(#' + id + 'b)"/><ellipse cx="76" cy="70" rx="9" ry="6" fill="url(#' + id + 'b)"/>' + frk +
