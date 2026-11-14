@@ -148,7 +148,7 @@ function dateOpen(id) {
    الخادم: src/scene.js (DateScene). الإحداثيات نسبية 0..1 على مسرح 4:3، والمسافة بعرض المسرح (y × 0.75).
    السحب أو النقر للمشي، والقرب يفتح العناق ومسك اليد، والأشياء: وردة تُسلَّم، كرة تُدفع، شمعة تُضيء. */
 var DT_LIM = { x0: 0.05, x1: 0.95, y0: 0.16, y1: 0.95 };   // نفس حدود الخادم
-var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22, chair: 0.16 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
+var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22, chair: 0.16, feed: 0.15 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
 var DT_TBL = { x: 0.5, y: 0.46 };
 var DT_OFFER_MS = 20000;
 
@@ -164,7 +164,7 @@ var DT_SVG = {
 function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img&v=' + w.iv : ''; }
 
 function dtChar(letter, grad, glow, bubId, url) {
-  var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;transition:opacity .4s');
+  var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;will-change:transform;transition:opacity .4s');
   var bub = dtNode('div', 'position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:calc(var(--s)*2.6);min-height:30px;padding:7px 11px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:14px;line-height:1.4');
   bub.id = bubId;
   var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.26);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, letter);
@@ -356,9 +356,10 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
   g.closePath(); g.fill();
   [-1, 1].forEach(function (d) {
     var sx = fx + d * s * 0.31, sy = shY + s * 0.06, hx, hy, t;
+    var nx = sx + d * s * 0.07 - sw * d * s * 0.05, ny = sy + s * 0.52 - Math.abs(sw) * s * 0.02, lw;
     if (link && link.hug) { t = dtReach(sx, sy, link.x + d * s * 0.16, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
-    else if (link && link.side === d) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
-    else { hx = sx + d * s * 0.07 - sw * d * s * 0.05; hy = sy + s * 0.52 - Math.abs(sw) * s * 0.02; }
+    else if (link && link.side === d) { t = dtReach(sx, sy, link.x, link.y, s * (link.R || 0.62)); lw = link.w == null ? 1 : link.w; hx = nx + (t[0] - nx) * lw; hy = ny + (t[1] - ny) * lw; }
+    else { hx = nx; hy = ny; }
     (c.hd || (c.hd = {}))[d] = [hx, hy];      // موضع اليد: يستخدمه رسم الكأس
     dtArm(g, sx, sy, hx, hy, pal, s);
   });
@@ -369,6 +370,7 @@ function dtFigureSide(g, c, pal, ts, here, link, ta) {
   var W = DT.sw, H = DT.sh, s = DT.s, dir = c.sdir || 1;
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
   var hipY = fy - s * 0.30, shY = fy - s * 0.80, kx = fx + dir * s * 0.42;
+  var fu = fx + (c.lean || 0) * s * 0.2 * dir;                  // الجذع العلوي ينحني نحو الطاولة عند الأكل
   g.globalAlpha = (here ? 1 : 0.38) * ta;
   g.fillStyle = 'rgba(0,0,0,.30)';
   g.beginPath(); g.ellipse(fx + dir * s * 0.1, fy + s * 0.03, s * 0.5, s * 0.11, 0, 0, 7); g.fill();
@@ -378,20 +380,19 @@ function dtFigureSide(g, c, pal, ts, here, link, ta) {
   g.lineWidth = s * 0.17;
   g.beginPath(); g.moveTo(kx, hipY); g.lineTo(kx, fy - s * 0.05); g.stroke();                     // الساق
   g.fillStyle = pal.shoe; g.beginPath(); g.ellipse(kx + dir * s * 0.06, fy - s * 0.02, s * 0.13, s * 0.06, 0, 0, 7); g.fill();
-  g.fillStyle = DT_SKIN; g.fillRect(fx + dir * s * 0.04 - s * 0.06, shY - s * 0.22, s * 0.12, s * 0.26);   // الرقبة
+  g.fillStyle = DT_SKIN; g.fillRect(fu + dir * s * 0.04 - s * 0.06, shY - s * 0.22, s * 0.12, s * 0.26);   // الرقبة
   var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
   g.fillStyle = gr;
   g.beginPath();
-  g.moveTo(fx - dir * s * 0.15, shY + s * 0.04);
-  g.quadraticCurveTo(fx - dir * s * 0.16, shY - s * 0.02, fx - dir * s * 0.06, shY - s * 0.02);
-  g.lineTo(fx + dir * s * 0.07, shY - s * 0.02);
-  g.quadraticCurveTo(fx + dir * s * 0.16, shY - s * 0.02, fx + dir * s * 0.15, shY + s * 0.06);
+  g.moveTo(fu - dir * s * 0.15, shY + s * 0.04);
+  g.quadraticCurveTo(fu - dir * s * 0.16, shY - s * 0.02, fu - dir * s * 0.06, shY - s * 0.02);
+  g.lineTo(fu + dir * s * 0.07, shY - s * 0.02);
+  g.quadraticCurveTo(fu + dir * s * 0.16, shY - s * 0.02, fu + dir * s * 0.15, shY + s * 0.06);
   g.lineTo(fx + dir * s * 0.14, hipY + s * 0.04); g.lineTo(fx - dir * s * 0.16, hipY + s * 0.04);
-  g.quadraticCurveTo(fx - dir * s * 0.17, hipY - s * 0.2, fx - dir * s * 0.15, shY + s * 0.04);
+  g.quadraticCurveTo(fx - dir * s * 0.17, hipY - s * 0.2, fu - dir * s * 0.15, shY + s * 0.04);
   g.closePath(); g.fill();
-  var sx = fx, sy = shY + s * 0.06, hx, hy, t;                                                   // الذراع القريبة من الطاولة
-  if (link && link.side === dir) { t = dtReach(sx, sy, link.x, link.y, s * 0.62); hx = t[0]; hy = t[1]; }
-  else { hx = fx + dir * s * 0.30; hy = hipY - s * 0.04; }                                       // اليد على الفخذ
+  var sx = fu, sy = shY + s * 0.06, hx = fx + dir * s * 0.30, hy = hipY - s * 0.04, t, lw;       // الذراع القريبة من الطاولة (اليد على الفخذ افتراضياً)
+  if (link && link.side === dir) { t = dtReach(sx, sy, link.x, link.y, s * (link.R || 0.62)); lw = link.w == null ? 1 : link.w; hx += (t[0] - hx) * lw; hy += (t[1] - hy) * lw; }                                       // اليد على الفخذ
   c.hd = c.hd || {}; c.hd[1] = c.hd[-1] = [hx, hy];
   dtArm(g, sx, sy, hx, hy, pal, s);
   g.globalAlpha = 1;
@@ -615,7 +616,8 @@ function dtDinnerTable(g, W, H, s, kd) {      // الزجاجة والكؤوس �
 function dtHoldLink(role, c, o, W, H, s, pose, pl) {
   var id = dtGlId(role), G = DT.gl && DT.gl[id];
   c.gk = null;
-  if (!G || !G.h || (role === 'p' && !c.here)) return null;
+  dtMouthPose(role, c, o, s);
+  if (!G || !G.h || (role === 'p' && !c.here)) return dtEatLink(role, c, o, W, H, s, pose, G);   // لا كأس بيده: يده حرة للأكل
   if (pose) { c.gk = { side: pl && pl.side ? -pl.side : -1, tilt: 0 }; return null; }   // الكأس في اليد الحرة
   var fx = c.x * W, fy = c.y * H, ox = (o.x == null ? 0.5 : o.x) * W, oy = (o.y == null ? 0.7 : o.y) * H;
   var sd = ox >= fx ? 1 : -1, hx = fx + sd * s * 0.34, hy = fy - s * 0.84, tilt = 0;
@@ -666,9 +668,9 @@ function dtGlEv(j) {                          // حدث من الخادم: رش�
   var now = Date.now();
   if (j.ev === 'sip') DT.gfx[j.by] = { k: 'sip', t0: now, until: now + 2000 };
   else if (j.ev === 'toast') { DT.gfx[j.by] = DT.gfx[j.to] = { k: 'toast', t0: now, until: now + 2200 }; dtFlash('🥂 نخب!'); }
-  else if (j.ev === 'serve') { DT.sv = DT.sv || {}; DT.sv[j.to] = now; if (DT_FOOD[j.fd]) dtFlash(DT_FOOD[j.fd].e + ' ' + DT_FOOD[j.fd].n); }
-  else if (j.ev === 'bite') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'bite', t0: now, until: now + 1800 }; }
-  else if (j.ev === 'feed') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'feed', to: j.to, t0: now, until: now + 2400 }; dtFlash('🥄 لقمة بحب'); }
+  else if (j.ev === 'serve') { DT.sv = DT.sv || {}; DT.sv[j.to] = now; if (DT_FOOD[j.fd]) dtFlash(DT_FOOD[j.fd].e + ' ' + DT_FOOD[j.fd].n + (j.z && DT_SZ[j.z] ? ' (' + DT_SZ[j.z].n + ')' : '')); }
+  else if (j.ev === 'bite') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'bite', d: j.d, t0: now, until: now + DT_EAT_MS }; }
+  else if (j.ev === 'feed') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'feed', d: j.d, to: j.to, t0: now, until: now + DT_FEED_MS }; dtFlash('🤲 لقمة بحب'); }
   else if (j.ev === 'pour') { DT.pour = { to: j.to, t0: now, until: now + 1300 }; if (DT_DR[j.dk]) dtFlash(DT_DR[j.dk].e + ' ' + DT_DR[j.dk].n); }
 }
 
@@ -696,40 +698,94 @@ var DT_FCATS = [
   ['🍽️ الأطباق الرئيسية', ['steak', 'pasta', 'chicken', 'fish', 'kabsa']],
   ['🍰 الحلويات', ['cake', 'icecream', 'fondant', 'flan', 'berries']]
 ];
+var DT_EAT_MS = 2600, DT_FEED_MS = 2800;       // مدة حركة اللقمة (نفس BITE_MS و FEED_MS في scene.js)
+var DT_BITES = { lentil: 4, salad: 5, hummus: 4, garlic: 3, samosa: 3, steak: 7, pasta: 6, chicken: 6, fish: 6, kabsa: 8,
+  cake: 5, icecream: 4, fondant: 4, flan: 4, berries: 3 };   // لقمات الطبق المتوسط (للعرض فقط: المرجع FOOD_BITES في الخادم)
+var DT_SZ = { s: { n: 'صغير', a: 'ص', k: 0.6, f: 0.85 }, m: { n: 'وسط', a: 'م', k: 1, f: 1 }, l: { n: 'كبير', a: 'ك', k: 1.5, f: 1.2 } };
+function dtBites(id, z) { return Math.max(2, Math.round((DT_BITES[id] || 3) * (DT_SZ[z] || DT_SZ.m).k)); }
+function dtSm(k) { k = k < 0 ? 0 : k > 1 ? 1 : k; return k * k * (3 - 2 * k); }
+function dtBump(u, a, b, c, d) { return u <= a || u >= d ? 0 : u < b ? dtSm((u - a) / (b - a)) : u <= c ? 1 : dtSm(1 - (u - c) / (d - c)); }
 function dtPlateXY(id, W, H) {                 // مكان الطبق: فوق الصحن الأبيض المرسوم في الخلفية
   return { x: (dtChairIdx(id) === 0 ? 0.43 : 0.57) * W, y: H * 0.395 };
 }
-function dtMouth(id, W, H, s) {                // فم صاحب المعرّف (تقريباً) لحركة الشوكة
+function dtMouth(id, W, H, s) {                // فم صاحب المعرّف: على الوجه (أسفل الصورة) ويتبع ميل الرأس
   var role = dtRole(id), c = DT.ch[role], o = DT.ch[role === 'm' ? 'p' : 'm'];
-  if (!c || (role === 'p' && !c.here)) return null;
+  if (!c || c.x == null || (role === 'p' && !c.here)) return null;
   var sit = c.sit || 0, sd = sit > 0.5 ? (c.sdir || 1) : ((o.x == null ? 0.5 : o.x) >= c.x ? 1 : -1);
-  return { x: c.x * DT.sw + sd * s * 0.17, y: c.y * DT.sh - s * 1.36 + sit * s * 0.36 };
+  return { x: c.x * W + sit * (c.sdir || 0) * s * 0.10 + (c.hlx || 0) + sd * s * 0.02, y: c.y * H - s * 1.46 + sit * s * 0.36 + (c.hly || 0) };
 }
-function dtFoodPlate(g, W, H, s, id, G, kd) {  // الطعام على الطبق: يصغر مع كل لقمة، بخار للساخن، وشمعة للحلوى
-  var F = DT_FOOD[G.fd]; if (!F) return;
-  var pp = dtPlateXY(id, W, H), now = Date.now(), tg = G.fb | 0, v;
+// وضعية الرأس والجذع أثناء الأكل والشرب: ينحني نحو الطبق ثم نحو اللقمة، ويمضغ بعدها؛ ويميل للخلف قليلاً عند الرشفة
+function dtMouthPose(role, c, o, s) {
+  var now = Date.now(), id = dtGlId(role), sit = c.sit || 0, E = DT.ef, k, e, u, L = 0, S = 0, chew = 0;
+  var fd = sit > 0.5 ? (c.sdir || 1) : ((o.x == null ? 0.5 : o.x) >= c.x ? 1 : -1);
+  c.hlx = c.hly = c.hrot = 0; c.lean = 0;
+  if (DT.still) return;
+  if (E) for (k in E) {
+    e = E[k]; if (now >= e.until) continue;
+    u = (now - e.t0) / (e.until - e.t0);
+    if (+k === id) L = Math.max(L, dtBump(u, 0.04, 0.22, 0.36, 0.52) * 0.8);            // ينحني ليصل إلى الطبق
+    if ((e.k === 'feed' ? +e.to : +k) === id) {                                          // صاحب الفم: يتقدّم نحو اللقمة
+      L = Math.max(L, dtBump(u, 0.34, 0.58, 0.72, 0.9) * (e.k === 'feed' ? 1.5 : 1));
+      if (u > 0.72) chew = Math.max(chew, 1 - (u - 0.72) / 0.28);
+    }
+  }
+  var f = DT.gfx[id];
+  if (f && f.k === 'sip' && now < f.until) { u = (now - f.t0) / (f.until - f.t0); S = Math.min(1, Math.sin(Math.PI * u) * 1.6); }
+  c.lean = L;
+  c.hlx = fd * s * ((0.07 + 0.13 * sit) * L + 0.03 * S);
+  c.hly = s * (0.06 * L - 0.02 * S) + (chew ? Math.sin(now / 65) * s * 0.012 * chew : 0);
+  c.hrot = fd * (9 * L - 7 * S);
+}
+// اليد تأكل: من وضعها الطبيعي إلى حافة الطبق، ثم تحمل اللقمة إلى الفم، وتبقى لحظة، ثم ترجع (w وزن المزج مع الوضع الطبيعي)
+function dtEatLink(role, c, o, W, H, s, pose, G) {
+  c.eside = 0;
+  if (pose || DT.still || !G || (role === 'p' && !c.here)) return null;
+  var id = dtGlId(role), e = DT.ef && DT.ef[id], now = Date.now();
+  if (!e || now >= e.until) return null;
+  var u = (now - e.t0) / (e.until - e.t0), sit = c.sit || 0;
+  var sd = sit > 0.5 ? (c.sdir || 1) : ((o.x == null ? 0.5 : o.x) >= c.x ? 1 : -1);
+  var pl = dtPlateXY(id, W, H), dp = pl.x >= c.x * W ? 1 : -1;
+  var gr = { x: pl.x - dp * W * 0.02, y: pl.y - s * 0.02 };                          // حافة الطبق الأقرب
+  var mt = dtMouth(e.k === 'feed' ? +e.to : id, W, H, s);
+  if (!mt) return null;
+  var tg, w, k;
+  if (u < 0.3) { tg = gr; w = dtSm(u / 0.3); }
+  else if (u < 0.62) { k = dtSm((u - 0.3) / 0.32); tg = { x: gr.x + (mt.x - gr.x) * k, y: gr.y + (mt.y - gr.y) * k - Math.sin(Math.PI * k) * s * 0.06 }; w = 1; }
+  else if (u < 0.72) { tg = mt; w = 1; }
+  else { tg = mt; w = 1 - dtSm((u - 0.72) / 0.28); }
+  c.eside = sd;
+  return { side: sit > 0.5 ? (c.sdir || 1) : sd, x: tg.x, y: tg.y, w: w, R: e.k === 'feed' ? 1.2 : 0.95 };
+}
+function dtFoodPlate(g, W, H, s, id, G, kd) {  // الطعام على الطبق: يصغر مع كل لقمة، بخار للساخن، شمعة للحلوى، وأطباق أخرى بانتظار الدور
+  var P = G.fp; if (!P || !P.length) return;
+  var cur = null, q = [], i, now = Date.now();
+  for (i = 0; i < P.length; i++) if (P[i].n > 0) { if (!cur) cur = P[i]; else q.push(P[i]); }
+  var pp = dtPlateXY(id, W, H), fs0 = Math.min(W * 0.055, s * 0.34), e = DT.ef && DT.ef[id];
   DT.fa = DT.fa || {}; DT.sv = DT.sv || {};
-  v = DT.fa[id]; if (v == null) v = tg;
-  v += (tg - v) * Math.min(1, kd * 5); DT.fa[id] = v;
-  var fs = Math.min(W * 0.055, s * 0.34), pop = 1, t0 = DT.sv[id];
+  var last = cur || P[P.length - 1], F = DT_FOOD[last.d]; if (!F) return;
+  var hold = e && now < e.until && (now - e.t0) / (e.until - e.t0) < 0.3 && (!cur || cur.d === e.d) ? 1 : 0;   // لا ينقص الطبق قبل أن تلتقط اليد اللقمة
+  var tg = ((cur ? cur.n : 0) + hold) / last.m, key = P.indexOf(last) + ':' + last.d + ':' + last.m, A = DT.fa[id];
+  if (!A || A.k !== key) A = DT.fa[id] = { k: key, v: tg };
+  A.v += (tg - A.v) * Math.min(1, kd * 5);
+  var v = A.v, fs = fs0 * (DT_SZ[last.z] || DT_SZ.m).f, pop = 1, t0 = DT.sv[id];
   if (t0 && !DT.still) { var u = (now - t0) / 600; if (u < 1) pop = u < 0.6 ? u / 0.6 * 1.2 : 1.2 - (u - 0.6) / 0.4 * 0.2; }
-  if (v > 0.05) {
+  if (v > 0.03) {
     g.save();
-    g.globalAlpha = Math.min(1, v + 0.3);
-    g.font = Math.round(fs * (0.5 + 0.5 * v / 3) * pop) + 'px sans-serif';
+    g.globalAlpha = Math.min(1, v * 3 + 0.3);
+    g.font = Math.round(fs * (0.5 + 0.5 * v) * pop) + 'px sans-serif';
     g.textAlign = 'center'; g.textBaseline = 'middle';
     g.fillText(F.e, pp.x, pp.y - fs * 0.28);
     g.restore();
-    if (F.hot && v > 0.5 && !DT.still) {
+    if (F.hot && v > 0.17 && !DT.still) {
       g.save();
-      for (var i = 0; i < 2; i++) {
-        var q = (now / 1100 + i * 0.5) % 1;
-        g.globalAlpha = (1 - q) * 0.45; g.fillStyle = '#fff';
-        g.beginPath(); g.arc(pp.x + (i ? 1 : -1) * fs * 0.2 + Math.sin(q * 6.3) * fs * 0.1, pp.y - fs * 0.6 - q * fs * 0.9, fs * (0.06 + q * 0.07), 0, 7); g.fill();
+      for (i = 0; i < 2; i++) {
+        var qq = (now / 1100 + i * 0.5) % 1;
+        g.globalAlpha = (1 - qq) * 0.45; g.fillStyle = '#fff';
+        g.beginPath(); g.arc(pp.x + (i ? 1 : -1) * fs * 0.2 + Math.sin(qq * 6.3) * fs * 0.1, pp.y - fs * 0.6 - qq * fs * 0.9, fs * (0.06 + qq * 0.07), 0, 7); g.fill();
       }
       g.restore();
     }
-    if (F.cd && tg === 3) {                    // شمعة صغيرة على الحلوى الجديدة
+    if (F.cd && cur && cur.n === cur.m) {      // شمعة صغيرة على الحلوى الجديدة
       var cx0 = pp.x + fs * 0.12, cy0 = pp.y - fs * 0.78;
       g.fillStyle = '#fef3c7'; g.fillRect(cx0 - 1.5, cy0 - fs * 0.22, 3, fs * 0.26);
       g.fillStyle = '#fbbf24'; g.beginPath(); g.ellipse(cx0, cy0 - fs * 0.27 + (DT.still ? 0 : Math.sin(now / 90) * 0.8), 2.2, 3.6, 0, 0, 7); g.fill();
@@ -738,32 +794,41 @@ function dtFoodPlate(g, W, H, s, id, G, kd) {  // الطعام على الطبق
     g.fillStyle = 'rgba(160,110,50,.55)';
     for (var k2 = 0; k2 < 4; k2++) { g.beginPath(); g.arc(pp.x + (k2 - 1.5) * fs * 0.16, pp.y - fs * 0.02 + (k2 % 2) * fs * 0.05, Math.max(1, fs * 0.04), 0, 7); g.fill(); }
   }
+  if (q.length) {                              // الأطباق التالية: صغيرة خلف الطبق الحالي
+    g.save(); g.globalAlpha = 0.9; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = Math.round(fs0 * 0.4) + 'px sans-serif';
+    for (i = 0; i < q.length && i < 3; i++) { var qf = DT_FOOD[q[i].d]; if (qf) g.fillText(qf.e, pp.x + (i - (Math.min(q.length, 3) - 1) / 2) * fs0 * 0.5, pp.y - fs0 * 0.95); }
+    g.restore();
+  }
 }
-function dtEatFx(cx, W, H, s) {                // الشوكة أو الملعقة: من الطبق إلى الفم (للنفس) أو إلى فم الشريك (إطعام)
+function dtEatFx(cx, W, H, s) {                // فوق الرؤوس: فمٌ يُفتح، واللقمة بين الأصابع تدخل الفم وتختفي، واليد فوق الوجه
   var E = DT.ef, now = Date.now(), id, i;
   if (!E) return;
   for (id in E) {
     var e = E[id];
     if (now >= e.until) { delete E[id]; continue; }
     if (DT.still) continue;
-    var u = (now - e.t0) / (e.until - e.t0), from = dtPlateXY(+id, W, H), to = dtMouth(e.k === 'feed' ? e.to : +id, W, H, s);
-    if (!to) continue;
-    var k = u < 0.4 ? u / 0.4 : u < 0.6 ? 1 : 1 - (u - 0.6) / 0.4;
-    k = k * k * (3 - 2 * k);
-    var sd = to.x >= from.x ? 1 : -1, y0 = from.y - s * 0.08;
-    var x = from.x + (to.x - from.x) * k, y = y0 + (to.y - y0) * k;
-    if (e.k === 'feed') y -= Math.sin(Math.PI * k) * s * 0.18;
-    cx.save();
-    cx.lineCap = 'round'; cx.strokeStyle = '#e5e7eb'; cx.fillStyle = '#e5e7eb'; cx.lineWidth = Math.max(1.5, s * 0.025);
-    cx.beginPath(); cx.moveTo(x, y); cx.lineTo(x - sd * s * 0.12, y + s * 0.2); cx.stroke();
-    if (e.k === 'feed') { cx.beginPath(); cx.ellipse(x, y - s * 0.01, s * 0.05, s * 0.032, sd * 0.4, 0, 7); cx.fill(); }
-    else { cx.lineWidth = Math.max(1, s * 0.016); for (i = -1; i <= 1; i++) { cx.beginPath(); cx.moveTo(x + i * s * 0.022, y); cx.lineTo(x + i * s * 0.022, y - s * 0.07); cx.stroke(); } }
-    var G = DT.gl && DT.gl[id], F = G && DT_FOOD[G.fd];
-    if (F && u < 0.5) { cx.font = Math.round(s * 0.13) + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle'; cx.fillText(F.e, x, y - s * 0.09); }
-    cx.restore();
-    if (e.k === 'feed' && u >= 0.4 && !e.h) {  // وصلت اللقمة: قلوب
+    var c = DT.ch[dtRole(+id)], hand = c && c.eside && c.hd ? c.hd[c.eside] : null;
+    if (!hand) continue;
+    var u = (now - e.t0) / (e.until - e.t0), rid = e.k === 'feed' ? +e.to : +id, mt = dtMouth(rid, W, H, s);
+    if (!mt) continue;
+    var op = dtBump(u, 0.46, 0.56, 0.64, 0.74);                       // فتحة الفم
+    if (op > 0.02) {
+      cx.fillStyle = 'rgba(70,12,24,.88)';
+      cx.beginPath(); cx.ellipse(mt.x, mt.y, s * 0.055, s * 0.04 * op, 0, 0, 7); cx.fill();
+    }
+    var F = DT_FOOD[e.d];
+    if (F && u >= 0.3 && u < 0.69) {                                  // اللقمة: بين الأصابع، ثم تدخل الفم وتصغر حتى تختفي
+      var m = u < 0.55 ? 0 : dtSm((u - 0.55) / 0.13), bx = hand[0] + (mt.x - hand[0]) * m, by = hand[1] - s * 0.04 + (mt.y - hand[1] + s * 0.04) * m;
+      var sc = u < 0.6 ? 1 : Math.max(0, 1 - (u - 0.6) / 0.09);
+      cx.font = Math.round(s * 0.13 * sc) + 'px sans-serif'; cx.textAlign = 'center'; cx.textBaseline = 'middle';
+      if (sc > 0.02) cx.fillText(F.e, bx, by);
+    }
+    if (Math.hypot(hand[0] - mt.x, hand[1] - mt.y) < s * 0.6 && u > 0.3 && u < 0.85) {   // اليد فوق الوجه (الرأس عنصر فوق الكانفاس)
+      cx.fillStyle = DT_SKIN; cx.beginPath(); cx.arc(hand[0], hand[1], s * 0.075, 0, 7); cx.fill();
+    }
+    if (e.k === 'feed' && u >= 0.6 && !e.h) {                         // وصلت اللقمة: قلوب
       e.h = 1;
-      for (i = 0; i < 6; i++) DT.hearts.push({ x: to.x + (Math.random() - 0.5) * s * 0.3, y: to.y - s * 0.1, vy: 0.06 + Math.random() * 0.06, vx: (Math.random() - 0.5) * 0.04, s: 12 + Math.random() * 12, a: 1 });
+      for (i = 0; i < 6; i++) DT.hearts.push({ x: mt.x + (Math.random() - 0.5) * s * 0.3, y: mt.y - s * 0.1, vy: 0.06 + Math.random() * 0.06, vx: (Math.random() - 0.5) * 0.04, s: 12 + Math.random() * 12, a: 1 });
     }
   }
 }
@@ -782,7 +847,7 @@ function dtMenu() {
   var old = DT.root.querySelector('#dtbook');
   if (old) { old.remove(); return; }
   dtBkCss();
-  var TOT = 4, sp = 0, tgt = 'm', sel = { food: null, drink: null }, rowsEl = {};
+  var TOT = 4, sp = 0, tgt = 'm', sel = { foods: [], drink: null }, rowsEl = {};   // foods: [{ id, z }] حتى 4 أطباق، لكل طبق حجمه
   var BW = Math.min(innerWidth - 24, 700), BH = Math.max(250, Math.min(440, innerHeight - 190)), PW = BW / 2;
   var narrow = PW < 250, tiny = BH < 330;
   var FONT = '"Amiri","Scheherazade New","Noto Naskh Arabic","Traditional Arabic",Georgia,serif';
@@ -801,12 +866,30 @@ function dtMenu() {
   }
 
   function orn() { return dtNode('div', 'text-align:center;color:#a67c3d;font-size:' + (tiny ? 12 : 15) + 'px;letter-spacing:5px;margin:' + (tiny ? '2px' : '4px') + ' 0', '— ❦ —'); }
+  function foodIdx(id) { for (var i = 0; i < sel.foods.length; i++) if (sel.foods[i].id === id) return i; return -1; }
+  function paintSz(id) {                           // لون حجم الطبق المحدد
+    var r = rowsEl['food:' + id], i = foodIdx(id); if (!r || !r.z) return;
+    Array.prototype.forEach.call(r.z.children, function (ch) {
+      var on = i >= 0 && sel.foods[i].z === ch.dataset.z;
+      ch.style.background = on ? '#b91c1c' : 'transparent'; ch.style.color = on ? '#fff' : '#7a1f3d';
+    });
+  }
   function mark(kind, id, on) {
     var r = rowsEl[kind + ':' + id]; if (!r) return;
     r.p.style.strokeDashoffset = on ? '0' : '1';
     r.t.style.opacity = on ? '1' : '0';
+    if (r.z) { r.z.style.display = on ? 'flex' : 'none'; if (on) paintSz(id); }
   }
   function pick(kind, id) {
+    if (kind === 'food') {                         // الأطباق: يمكن اختيار أكثر من طبق
+      var fi = foodIdx(id);
+      if (fi >= 0) { sel.foods.splice(fi, 1); mark('food', id, false); }
+      else {
+        if (sel.foods.length >= 4) { dtFlash('حتى 4 أطباق في الوجبة'); return; }
+        sel.foods.push({ id: id, z: 'm' }); mark('food', id, true);
+      }
+      summ(); return;
+    }
     var prev = sel[kind];
     if (prev) mark(kind, prev, false);
     if (prev === id) sel[kind] = null; else { sel[kind] = id; mark(kind, id, true); }
@@ -820,12 +903,23 @@ function dtMenu() {
     if (!narrow && !tiny && d) col.appendChild(dtNode('span', 'font-size:12px;opacity:.75;line-height:1.25', d));
     if (tags) col.appendChild(dtNode('span', 'font-size:10.5px;color:#8a5a1c;line-height:1.2', tags));
     r.appendChild(col);
+    var szs = null;
+    if (kind === 'food') {                         // حجم الطبق (يظهر بعد التحديد): ص صغير · م وسط · ك كبير
+      szs = dtNode('span', 'display:none;gap:3px;align-items:center;flex:none');
+      ['s', 'm', 'l'].forEach(function (zk) {
+        var ch = dtNode('span', 'min-width:21px;height:21px;line-height:19px;border-radius:11px;border:1px solid #a67c3d;text-align:center;font-size:12px;font-weight:700;color:#7a1f3d;background:transparent;box-sizing:border-box', DT_SZ[zk].a);
+        ch.dataset.z = zk; ch.title = DT_SZ[zk].n + ' · ' + dtBites(id, zk) + ' لقمات';
+        ch.onclick = function (ev) { ev.stopPropagation(); var i = foodIdx(id); if (i >= 0) { sel.foods[i].z = zk; paintSz(id); summ(); } };
+        szs.appendChild(ch);
+      });
+      r.appendChild(szs);
+    }
     var tick = dtNode('span', 'color:#b91c1c;font-weight:700;font-size:16px;opacity:0;transition:opacity .25s', '✔');
     r.appendChild(tick);
     var pen = dtNode('span', 'position:absolute;inset:-1px;pointer-events:none');
     pen.innerHTML = '<svg viewBox="0 0 100 40" preserveAspectRatio="none" width="100%" height="100%"><path d="M95 9C88-2 22-4 7 13C-2 27 30 40 60 38C92 36 102 22 93 8" fill="none" stroke="#b91c1c" stroke-width="2" stroke-linecap="round" pathLength="1" stroke-dasharray="1" stroke-dashoffset="1" style="transition:stroke-dashoffset .5s ease"/></svg>';
     r.appendChild(pen);
-    rowsEl[kind + ':' + id] = { p: pen.firstChild.firstChild, t: tick };
+    rowsEl[kind + ':' + id] = { p: pen.firstChild.firstChild, t: tick, z: szs };
     r.onclick = function () { pick(kind, id); };
     return r;
   }
@@ -848,7 +942,7 @@ function dtMenu() {
   function foodRows(ci) {
     return DT_FCATS[ci][1].map(function (id) {
       var F = DT_FOOD[id];
-      return row('food', id, F.e, F.n, F.d, (F.hot ? '♨️ ساخن ' : '') + (F.cd ? '🕯️ بشمعة' : ''));
+      return row('food', id, F.e, F.n, F.d, (F.hot ? '♨️ ساخن ' : '') + (F.cd ? '🕯️ بشمعة ' : '') + '🥄 ' + dtBites(id, 's') + '–' + dtBites(id, 'l') + ' لقمات');
     });
   }
   function content(i) {
@@ -857,7 +951,7 @@ function dtMenu() {
       w0.appendChild(dtNode('div', 'font-size:' + (tiny ? 28 : 40) + 'px', '🕯️'));
       w0.appendChild(dtNode('div', 'font-weight:700;font-size:' + (narrow ? 19 : 24) + 'px;color:#7a1f3d', 'عشاء الليلة'));
       w0.appendChild(orn());
-      w0.appendChild(dtNode('div', 'font-size:' + (narrow ? 12 : 14) + 'px;line-height:1.6;opacity:.85;padding:0 6px', 'اقلبا الصفحة وانتقيا ما يطيب لكما. ضع علامة ✔ على ما تشتهي ثم اضغط «اطلب».'));
+      w0.appendChild(dtNode('div', 'font-size:' + (narrow ? 12 : 14) + 'px;line-height:1.6;opacity:.85;padding:0 6px', 'اقلبا الصفحة وانتقيا ما يطيب لكما. ضع علامة ✔ على ما تشتهي (حتى 4 أطباق، ولكل طبق حجمه: ص صغير · م وسط · ك كبير) ثم اضغط «اطلب».'));
       return w0;
     }
     if (i >= 1 && i <= 3) return page(DT_FCATS[i - 1][0], foodRows(i - 1), i);
@@ -932,19 +1026,19 @@ function dtMenu() {
   function sty() { chM.style.background = tgt === 'm' ? '#e11d48' : 'rgba(255,255,255,.1)'; chP.style.background = tgt === 'p' ? '#e11d48' : 'rgba(255,255,255,.1)'; }
   function summ() {
     var p = [];
-    if (sel.food) p.push(DT_FOOD[sel.food].e + ' ' + DT_FOOD[sel.food].n);
+    sel.foods.forEach(function (f) { p.push(DT_FOOD[f.id].e + ' ' + DT_FOOD[f.id].n + ' (' + DT_SZ[f.z].n + ' · ' + dtBites(f.id, f.z) + ' لقمات)'); });
     if (sel.drink) p.push(DT_DR[sel.drink].e + ' ' + DT_DR[sel.drink].n);
     summEl.textContent = p.length ? p.join('  +  ') : 'ضع علامة ✔ على ما تشتهي';
     bGo.style.opacity = p.length ? '1' : '.45';
   }
   function order() {
-    if (!sel.food && !sel.drink) { dtFlash('اختر شيئاً من القائمة أولاً'); return; }
+    if (!sel.foods.length && !sel.drink) { dtFlash('اختر شيئاً من القائمة أولاً'); return; }
     if (!DT.wsOk) { dtFlash('غير متصل بالمسرح'); return; }
     if (dtDist(DT.ch.m, DT_TBL) > DT_REACH.table) { dtFlash('اقترب من الطاولة لتطلب'); return; }
     if (tgt === 'p' && !DT.ch.p.here) { dtFlash('شريكك غير موجود في المسرح الآن'); return; }
     var q = [];
     if (sel.drink) q.push({ t: tgt === 'm' ? 'gfill' : 'gfillp', d: sel.drink });
-    if (sel.food) q.push({ t: tgt === 'm' ? 'fserve' : 'fservep', d: sel.food });
+    sel.foods.forEach(function (f) { q.push({ t: tgt === 'm' ? 'fserve' : 'fservep', d: f.id, z: f.z }); });
     q.forEach(function (o, i) { setTimeout(function () { dtWsSend(o); }, i * 480); });
     close();
   }
@@ -1053,6 +1147,12 @@ function dtCamera(dt) {
 
 function dtPlace(el, x, y, z) {
   el.style.left = (x * 100) + '%'; el.style.top = (y * 100) + '%';
+  if (z != null) el.style.zIndex = z;
+}
+// الرأس: نفس بكسلات الجسم المرسوم تماماً، بـ transform (بلا إعادة تخطيط) فلا يتأخر عن الكانفاس
+function dtPlaceHead(el, x, y, z) {
+  if (!DT.sw) { dtPlace(el, x, y, z); return; }
+  el.style.transform = 'translate3d(' + (x * DT.sw).toFixed(1) + 'px,' + (y * DT.sh).toFixed(1) + 'px,0)';
   if (z != null) el.style.zIndex = z;
 }
 
@@ -1183,11 +1283,12 @@ function dtActions() {
       if (nt) a.push(['↩️ ضع الكأس', 'gput', 1, 0]);
     }
     if (nt && mg.lv > 0) a.push(['🚰 أفرغ كأسي', 'gempty', 1, 0]);
-    if (nt && (mg.fb | 0) > 0) {
-      a.push(['🍴 كُل', 'fbite', 1, 0]);
-      if (p.here && pg) a.push(['🥄 أطعم شريكي', 'ffeed', DT.near.fx && (dtDist(m, p) <= 0.22 || (mg.s && pg.s)) ? 1 : 0, 1]);
+    var mfp = mg.fp || [], hasBite = mfp.some(function (q) { return q.n > 0; });
+    if (nt && hasBite) {
+      a.push([mg.h ? '🍴 كُل (ضع الكأس أولاً)' : '🍴 كُل', 'fbite', mg.h ? 0 : 1, 0]);
+      if (p.here && pg) { var fclose = dtDist(m, p) <= DT_REACH.feed; a.push([fclose || mg.h ? '🤲 أطعم شريكي' : '🤲 أطعم شريكي (اقترب منه)', 'ffeed', !mg.h && DT.near.fx && fclose ? 1 : 0, 1]); }
     }
-    if (nt && mg.fd) a.push(['🧹 ارفع الطبق', 'fclear', 1, 0]);
+    if (nt && mfp.length) a.push(['🧹 ارفع الأطباق', 'fclear', 1, 0]);
     if (mg.s) a.push(['🧍 قم من الكرسي', 'cstand', 1, 0]);
     else {
       var chp = { x: dtChX(me, mg.o), y: 0.5 };
@@ -1294,16 +1395,18 @@ function dtLoop(ts) {
   if (p.x != null) { p.x += (p.tx - p.x) * k; p.y += (p.ty - p.y) * k; }
   if (b && b.x != null) { b.x += (b.tx - b.x) * Math.min(1, dt * 12); b.y += (b.ty - b.y) * Math.min(1, dt * 12); }
 
-  // رسم الشخصيتين
+  // رسم الشخصيتين: الجسم أولاً (يحدّث حالة الجلوس) ثم الرأس بالموضع نفسه في الإطار نفسه
+  dtBodyDraw(ts);
   var cm = DT.els.m, cp = DT.els.p;
-  dtPlace(cm, m.x, m.y, Math.round(m.y * 100));
-  dtPlace(cp, p.x == null ? 0.5 : p.x, p.y == null ? 0.7 : p.y, Math.round((p.y || 0.7) * 100));
+  dtPlaceHead(cm, m.x, m.y, Math.round(m.y * 100));
+  dtPlaceHead(cp, p.x == null ? 0.5 : p.x, p.y == null ? 0.7 : p.y, Math.round((p.y || 0.7) * 100));
   cp.style.opacity = p.here ? '1' : '0.38';
   [[cm, m], [cp, p]].forEach(function (z) {
     var av = z[0].firstChild.nextSibling;
     var by2 = z[1].moving && !DT.still && !(z[1].sit > 0.02) ? -Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018 : 0, sd2 = (z[1].sit || 0) * DT.s * 0.36;   // قفزة المشي + نزول الرأس عند الجلوس
     var sx2 = (z[1].sit || 0) * (z[1].sdir || 0) * DT.s * 0.10, rt = (z[1].sit || 0) * (z[1].sdir || 0) * 5;   // يميل الرأس نحو الطاولة عند الجلوس
-    av.style.transform = by2 || sd2 || sx2 ? 'translate(' + sx2.toFixed(1) + 'px,' + (by2 + sd2).toFixed(1) + 'px) rotate(' + rt.toFixed(1) + 'deg)' : '';
+    var hx3 = sx2 + (z[1].hlx || 0), hy3 = by2 + sd2 + (z[1].hly || 0), hr3 = rt + (z[1].hrot || 0);   // + ميل الرأس عند الأكل والشرب
+    av.style.transform = hx3 || hy3 || hr3 ? 'translate(' + hx3.toFixed(1) + 'px,' + hy3.toFixed(1) + 'px) rotate(' + hr3.toFixed(1) + 'deg)' : '';
   });
   // الأشياء
   if (b) dtPlace(DT.els.ball, b.x, b.y, Math.round(b.y * 100) - 1);
@@ -1321,7 +1424,6 @@ function dtLoop(ts) {
     DT.els.rose.style.transform = 'translate(-50%,-70%)' + (off && !DT.still ? ' scale(' + (1 + Math.sin(ts / 160) * 0.08).toFixed(3) + ')' : '');
   }
   dtCamera(dt);
-  dtBodyDraw(ts);
   dtFxDraw(ts, dt);
   dtRenderActs();
 }
@@ -1505,4 +1607,3 @@ function dtBuild(id, j) {
 }
 
 window.dateOpen = dateOpen;
-
