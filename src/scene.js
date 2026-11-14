@@ -25,6 +25,8 @@ const TABLE_R = 0.26;        // أقصى مسافة من الطاولة لأخذ
 const POUR_R = 0.26;         // أقصى مسافة بين الطرفين لملء كأس الشريك
 const TOAST_R = 0.22;        // أقصى مسافة بين الطرفين للنخب
 const CHAIR_R = 0.16;        // أقصى مسافة من الكرسي لسحبه أو الجلوس عليه أو دفعه
+const SIDE = { x: 0.84, y: 0.80 };   // الطاولة الصغيرة في الزاوية الأمامية اليمنى: طبق مشترك يُؤكل منه واقفين، فلا حاجة لتحريك الكراسي
+const SIDE_R = 0.20;         // أقصى مسافة من الطاولة الصغيرة للطلب أو الأكل أو الإطعام
 const CHAIR_Y = 0.50;        // صف الكراسي (على جانبي الطاولة)
 const CHAIR_X = { tuck: [0.30, 0.70], out: [0.23, 0.77] };   // [صاحب المعرّف الأصغر، الأكبر]: كرسي مدفوع / مسحوب
 const DRINKS = new Set(['water', 'iced_tea', 'lemonmint', 'coffee', 'tea', 'cocoa', 'qahwa', 'cola', 'lemonade', 'soda', 'berry',
@@ -67,9 +69,11 @@ export class DateScene extends DurableObject {
     this.lastKick = 0;
     this.lastCd = 0;
     this.gl = {};              // طاولة العشاء: { [uid]: { lv: 0..3 مستوى الشراب, dk: نوع المشروب, h: 1 كأس بيده, o: 1 كرسي مسحوب, s: 1 جالس, fp: الأطباق [{ d: الأكلة, z: الحجم s|m|l, m: لقمات الطبق كاملاً, n: المتبقية }] } }
+    this.sp = null;            // الطبق المشترك على الطاولة الصغيرة: { d, z, m, n } أو null
     this.lastToast = 0;
     this.ctx.blockConcurrencyWhile(async () => {
-      const [o, p, sm, gl] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl')]);
+      const [o, p, sm, gl, sp] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl'), this.ctx.storage.get('sp')]);
+      if (sp && typeof sp === 'object' && sp.d) this.sp = sp;
       if (sm) this.simple = 1;
       if (o && o.rose && o.ball && o.candle) this.objs = o;
       if (Array.isArray(p)) this.pair = p;
@@ -144,7 +148,7 @@ export class DateScene extends DurableObject {
     server.send(JSON.stringify({
       t: 'hello', you: id, now, players, simple: this.simple,
       walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
-      gl: this.gl,
+      gl: this.gl, sp: this.sp,
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
@@ -199,7 +203,8 @@ export class DateScene extends DurableObject {
     // مشهد العشاء: الكأس والملء والرشفة والنخب
     if (j.t === 'gtake' || j.t === 'gput' || j.t === 'gsip' || j.t === 'gfill' || j.t === 'gfillp' || j.t === 'gtoast' || j.t === 'gempty' ||
         j.t === 'cpull' || j.t === 'cpush' || j.t === 'csit' || j.t === 'cstand' ||
-        j.t === 'fserve' || j.t === 'fservep' || j.t === 'fbite' || j.t === 'ffeed' || j.t === 'fclear') {
+        j.t === 'fserve' || j.t === 'fservep' || j.t === 'fbite' || j.t === 'ffeed' || j.t === 'fclear' ||
+        j.t === 'sserve' || j.t === 'sbite' || j.t === 'sfeed' || j.t === 'sclear') {
       this.glassMsg(ws, a, j, now);
       return;
     }
@@ -318,6 +323,7 @@ export class DateScene extends DurableObject {
   }
   curPlate(T) { return this.plates(T).find((q) => q.n > 0) || null; }   // الطبق الذي يؤكل منه الآن
   nearTable(a) { return dist(a, TABLE) <= TABLE_R; }
+  nearSide(a) { return dist(a, SIDE) <= SIDE_R; }
   chairPos(id, out) {
     const idx = this.pair && this.pair[0] === id ? 0 : 1;
     return { x: CHAIR_X[out ? 'out' : 'tuck'][idx], y: CHAIR_Y };
@@ -435,6 +441,42 @@ export class DateScene extends DurableObject {
       if (!this.plates(G).length) return;
       if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لترفع الأطباق'); return; }
       G.fp = [];
+    } else if (t === 'sserve') {
+      // طبق مشترك على الطاولة الصغيرة: طبق واحد في كل مرة
+      if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة'); return; }
+      const f = typeof j.d === 'string' && FOODS.has(j.d) ? j.d : '';
+      if (!f) return;
+      if (this.sp && this.sp.n > 0) { this.tell(ws, 'الطبق المشترك لم يفرغ بعد'); return; }
+      const z = ['s', 'm', 'l'].includes(j.z) ? j.z : 'm', n = biteCount(f, z);
+      this.sp = { d: f, z, m: n, n };
+      ev = { t: 'gs', ev: 'serve', by: a.id, to: 'S', fd: f, z, n };
+    } else if (t === 'sbite') {
+      if (!this.sp || this.sp.n <= 0) return;
+      if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة لتأكل'); return; }
+      if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتأكل بيدك'); return; }
+      if (a.fe && now - a.fe < BITE_MS) return;
+      a.fe = now; ws.serializeAttachment(a);
+      this.sp.n -= 1;
+      ev = { t: 'gs', ev: 'bite', by: a.id, d: this.sp.d, left: this.sp.n, src: 's' };
+    } else if (t === 'sfeed') {
+      if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
+      if (!this.sp || this.sp.n <= 0) { this.tell(ws, 'الطبق المشترك فارغ'); return; }
+      if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة'); return; }
+      if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتطعم شريكك بيدك'); return; }
+      if (!this.nearState().fx) { this.tell(ws, 'الإطعام متوقف بسبب إعداد «المساحة الشخصية»'); return; }
+      if (dist(a, o) > FEED_R) { this.tell(ws, 'اقترب من شريكك أكثر لتطعمه بيدك'); return; }
+      if (a.fe && now - a.fe < FEED_MS) return;
+      a.fe = now; ws.serializeAttachment(a);
+      this.sp.n -= 1;
+      ev = { t: 'gs', ev: 'feed', by: a.id, to: o.id, d: this.sp.d, left: this.sp.n, src: 's' };
+    } else if (t === 'sclear') {
+      if (!this.sp) return;
+      if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة'); return; }
+      this.sp = null;
+    }
+    if (t === 'sserve' || t === 'sbite' || t === 'sfeed' || t === 'sclear') {
+      this.ctx.storage.put('sp', this.sp).catch(() => {});
+      this.bcast({ t: 'sp', sp: this.sp });
     }
     this.saveGl();
     this.bcast({ t: 'gl', gl: this.gl });
@@ -549,7 +591,7 @@ export class DateScene extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, 'end'); } catch (e) {} }
     try { await this.ctx.storage.deleteAlarm(); } catch (e) {}
     try { await this.ctx.storage.deleteAll(); } catch (e) {}
-    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null; this.gl = {}; this.lastToast = 0;
+    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null; this.gl = {}; this.sp = null; this.lastToast = 0;
   }
 }
 
@@ -581,3 +623,4 @@ export async function sceneConnect(req, env, url) {
   r2.headers.set('x-ps', sp && sp.ps ? '1' : '0');
   return env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + id)).fetch(r2);
 }
+      
