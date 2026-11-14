@@ -7,6 +7,7 @@
 import { DurableObject } from 'cloudflare:workers';
 import { json } from './http.js';
 import { currentUser } from './security.js';
+import { cleanLook, loadLooks } from './faces.js';
 
 // الإحداثيات نسبية (0..1) على مسرح بنسبة 4:3. المسافات تُحسب بعرض المسرح (محور y × 0.75).
 const MINX = 0.05, MAXX = 0.95, MINY = 0.16, MAXY = 0.95;   // حدود الشخصية
@@ -110,6 +111,8 @@ export class DateScene extends DurableObject {
     const id = parseInt(request.headers.get('x-uid') || '0', 10) || 0;
     const pid = parseInt(request.headers.get('x-pid') || '0', 10) || 0;
     const ps = request.headers.get('x-ps') === '1' ? 1 : 0;
+    let lk = null;                     // شكل الوجه المحفوظ (يُتحقق منه، وإلا يُشتق في المتصفح من رقم الحساب)
+    try { lk = cleanLook(JSON.parse(request.headers.get('x-lk') || 'null')); } catch (e) { lk = null; }
     let n = '';
     try { n = decodeURIComponent(request.headers.get('x-uname') || ''); } catch (e) {}
     if (!id || !pid || id === pid) return new Response('bad', { status: 400 });
@@ -131,7 +134,7 @@ export class DateScene extends DurableObject {
     this.ctx.acceptWebSocket(server, ['u' + id]);
     const now = Date.now();
     const me = {
-      id, n: n.slice(0, 16), ps,
+      id, n: n.slice(0, 16), ps, lk,
       x: prev ? prev.x : id === this.pair[0] ? 0.3 : 0.7,
       y: prev ? prev.y : 0.72,
       mt: 0, la: now,
@@ -142,9 +145,9 @@ export class DateScene extends DurableObject {
     const players = {};
     for (const ws of this.live()) {
       const a = ws.deserializeAttachment();
-      if (a && a.id) players[a.id] = { x: r3(a.x), y: r3(a.y), n: a.n };
+      if (a && a.id) players[a.id] = { x: r3(a.x), y: r3(a.y), n: a.n, lk: a.lk || null };
     }
-    players[id] = { x: r3(me.x), y: r3(me.y), n: me.n };
+    players[id] = { x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null };
     server.send(JSON.stringify({
       t: 'hello', you: id, now, players, simple: this.simple,
       walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
@@ -152,7 +155,7 @@ export class DateScene extends DurableObject {
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
-    this.bcast({ t: 'j', id, x: r3(me.x), y: r3(me.y), n: me.n }, server);
+    this.bcast({ t: 'j', id, x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null }, server);
     this.nearCheck(true);
     this.ctx.storage.getAlarm().then((al) => { if (!al) this.ctx.storage.setAlarm(Date.now() + 120000); }).catch(() => {});
     return new Response(null, { status: 101, webSocket: client });
@@ -175,6 +178,15 @@ export class DateScene extends DurableObject {
     const R = this.objs.rose, C = this.objs.candle;
 
     if (j.t === 'a') { ws.serializeAttachment(a); return; }   // نشاط فقط: يمنع إغلاق الاتصال كخامل
+
+    // تغيير شكل الوجه أثناء الموعد: يُتحقق من الأرقام ويُبثّ للشريك (الحفظ الدائم عبر POST /api/date/face)
+    if (j.t === 'face') {
+      const lk = cleanLook(j.look);
+      if (!lk) return;
+      a.lk = lk; ws.serializeAttachment(a);
+      this.bcast({ t: 'face', id: a.id, look: lk }, ws);
+      return;
+    }
 
     // تبديل نمط المشهد (متحرك/بسيط): يُخزَّن ويُبثّ للطرفين معاً
     if (j.t === 'mode') {
@@ -615,12 +627,14 @@ export async function sceneConnect(req, env, url) {
   if (!r) return json({ error: 'الموعد غير جارٍ' }, 409);
   const pid = r.user_a === u.id ? r.user_b : r.user_a;
   const sp = await env.DB.prepare('SELECT personal_space ps FROM scene_prefs WHERE user_id=?').bind(u.id).first();
+  const looks = await loadLooks(env, [u.id]);
   // الهوية تُمرَّر بترويسات داخلية تُستبدل دائماً، فلا يستطيع العميل تزويرها
   const r2 = new Request(req);
   r2.headers.set('x-uid', String(u.id));
   r2.headers.set('x-pid', String(pid));
   r2.headers.set('x-uname', encodeURIComponent(u.name || ''));
   r2.headers.set('x-ps', sp && sp.ps ? '1' : '0');
+  r2.headers.set('x-lk', looks[u.id] ? JSON.stringify(looks[u.id]) : '');
   return env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + id)).fetch(r2);
 }
       
