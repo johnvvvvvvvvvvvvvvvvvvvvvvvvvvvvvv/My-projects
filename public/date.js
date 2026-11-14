@@ -168,22 +168,51 @@ function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img
 /* ---------- وجوه مرسومة بدل صور الملف الشخصي: البشرة والشعر والتسريحة من معرّف الشخص ---------- */
 var DT_SKIN = ['#f6d3b8', '#eebd9a', '#d9a07a', '#b97a56', '#8d5a3b'];
 var DT_HAIR = ['#2b1a16', '#4a2c1a', '#7a4a22', '#1f2937', '#a0522d'];
+var DT_EYE = ['#4a2c1a', '#1f2937', '#6b4a1f', '#2f6b4f', '#3b6fb6'], DT_FID = 0;
+function dtShade(hex, k) {                      // k < 0 أغمق، k > 0 أفتح
+  var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
+  function f(v) { return Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k))); }
+  return '#' + ((1 << 24) | (f(r) << 16) | (f(g) << 8) | f(b)).toString(16).slice(1);
+}
 function dtFaceSvg(seed) {
-  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_SKIN[h % 5], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 3, bd = ((h >>> 12) % 4) * 0.7;
-  var back = st === 1 ? '<path d="M6 100V46Q6 4 50 4Q94 4 94 46V100Z" fill="' + hc + '"/>' : '';
-  var cap = '<path d="M-2 50Q-4 6 50 4Q104 6 102 50Q86 26 50 29Q14 26 -2 50Z" fill="' + hc + '"/>';
-  var top = st === 2 ? '<circle cx="50" cy="8" r="11" fill="' + hc + '"/>' : st === 0 ? '<path d="M18 36Q30 20 56 26Q40 30 30 44Z" fill="' + hc + '"/>' : '';
-  return '<svg viewBox="0 0 100 100" width="100%" height="100%" style="display:block">' +
-    '<rect width="100" height="100" fill="' + sk + '"/>' + back +
-    '<ellipse cx="50" cy="58" rx="36" ry="38" fill="' + sk + '"/>' + cap + top +
-    '<path d="M27 44Q35 39 43 43M57 43Q65 39 73 44" stroke="' + hc + '" stroke-width="3" fill="none" stroke-linecap="round"/>' +
-    '<ellipse cx="35" cy="55" rx="5" ry="6" fill="#2b1a16"><animate attributeName="ry" values="6;6;0.6;6;6" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
-    '<ellipse cx="65" cy="55" rx="5" ry="6" fill="#2b1a16"><animate attributeName="ry" values="6;6;0.6;6;6" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
-    '<circle cx="36.6" cy="52.6" r="1.8" fill="#fff"/><circle cx="66.6" cy="52.6" r="1.8" fill="#fff"/>' +
-    '<ellipse cx="25" cy="69" rx="7" ry="4.5" fill="#f43f5e" opacity=".28"/><ellipse cx="75" cy="69" rx="7" ry="4.5" fill="#f43f5e" opacity=".28"/>' +
-    '<path d="M48 62Q50 66 52 62" stroke="#00000033" stroke-width="2" fill="none" stroke-linecap="round"/>' +
-    '<path class="fm1" d="M37 73Q50 85 63 73" stroke="#8b2c3a" stroke-width="3.2" fill="none" stroke-linecap="round"/>' +
-    '<g class="fm2" style="display:none"><ellipse cx="50" cy="78" rx="9" ry="7" fill="#7f1d1d"/><ellipse cx="50" cy="82" rx="5" ry="3" fill="#f87171"/></g>' +
+  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_SKIN[h % 5], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 3;
+  var bd = ((h >>> 12) % 4) * 0.7, ec = DT_EYE[(h >>> 16) % 5], fr = ((h >>> 20) % 3) === 0;
+  var id = 'df' + (++DT_FID) + '_', skD = dtShade(sk, -0.2), skL = dtShade(sk, 0.35), hcD = dtShade(hc, -0.4), hcL = dtShade(hc, 0.4);
+  var defs = '<defs>' +
+    '<radialGradient id="' + id + 's" cx="38%" cy="30%" r="88%"><stop offset="0" stop-color="' + skL + '"/><stop offset=".5" stop-color="' + sk + '"/><stop offset="1" stop-color="' + skD + '"/></radialGradient>' +
+    '<linearGradient id="' + id + 'h" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="' + hcL + '"/><stop offset=".45" stop-color="' + hc + '"/><stop offset="1" stop-color="' + hcD + '"/></linearGradient>' +
+    '<radialGradient id="' + id + 'i" cx="50%" cy="35%" r="70%"><stop offset="0" stop-color="' + dtShade(ec, 0.5) + '"/><stop offset="1" stop-color="' + dtShade(ec, -0.35) + '"/></radialGradient>' +
+    '<radialGradient id="' + id + 'b"><stop offset="0" stop-color="#fb7185" stop-opacity=".55"/><stop offset="1" stop-color="#fb7185" stop-opacity="0"/></radialGradient>' +
+    '<linearGradient id="' + id + 'l" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#e0566f"/><stop offset="1" stop-color="#b8334f"/></linearGradient></defs>';
+  function eye(cx, dir) {                       // dir: +1 للعين اليمنى (طرفها الخارجي يميناً)، -1 لليسرى
+    var cy = 55, L = cx - 7.6, R = cx + 7.6;
+    return '<ellipse cx="' + cx + '" cy="' + cy + '" rx="7.4" ry="5.7" fill="#fff"/>' +
+      '<circle cx="' + cx + '" cy="' + (cy + 0.4) + '" r="4.4" fill="url(#' + id + 'i)"/><circle cx="' + cx + '" cy="' + (cy + 0.4) + '" r="2.1" fill="#120a08"/>' +
+      '<circle cx="' + (cx - 1.7) + '" cy="' + (cy - 1.5) + '" r="1.6" fill="#fff"/><circle cx="' + (cx + 1.7) + '" cy="' + (cy + 2) + '" r=".75" fill="#fff" opacity=".85"/>' +
+      '<ellipse cx="' + cx + '" cy="' + cy + '" rx="8.2" ry="0" fill="' + sk + '"><animate attributeName="ry" values="0;0;6.6;0;0" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
+      '<path d="M' + L + ' ' + (cy - 0.4) + ' Q' + cx + ' ' + (cy - 8.6) + ' ' + R + ' ' + (cy - 0.4) + '" stroke="#1a0f0c" stroke-width="2.3" fill="none" stroke-linecap="round"/>' +
+      '<path d="M' + (cx + dir * 7.3) + ' ' + (cy - 1.6) + ' l' + (dir * 2.8) + ' -2.4" stroke="#1a0f0c" stroke-width="1.7" stroke-linecap="round"/>' +
+      '<path d="M' + (cx - 5) + ' ' + (cy + 5) + ' Q' + cx + ' ' + (cy + 7) + ' ' + (cx + 5) + ' ' + (cy + 5) + '" stroke="' + skD + '" stroke-width=".9" fill="none" opacity=".7" stroke-linecap="round"/>';
+  }
+  var back = st === 1 ? '<path d="M3 100V46Q1 1 50 1Q99 1 97 46V100Q86 92 84 70L16 70Q14 92 3 100Z" fill="url(#' + id + 'h)"/>' : '';
+  var bun = st === 2 ? '<circle cx="50" cy="5" r="13" fill="url(#' + id + 'h)"/><path d="M42 3Q50 -2 58 3" stroke="' + hcL + '" stroke-width="1.6" fill="none" opacity=".6" stroke-linecap="round"/>' : '';
+  var front = st === 0
+    ? '<path d="M9 54Q3 6 50 3Q97 6 91 54Q85 32 64 27Q42 40 21 33Q13 40 9 54Z" fill="url(#' + id + 'h)"/><path d="M28 13Q46 6 68 13" stroke="' + hcL + '" stroke-width="2.4" fill="none" opacity=".55" stroke-linecap="round"/><path d="M22 33Q42 36 62 25" stroke="' + hcD + '" stroke-width="1.2" fill="none" opacity=".5"/>'
+    : st === 1
+      ? '<path d="M7 58Q1 4 50 2Q99 4 93 58Q89 34 75 28Q61 25 50 31Q39 25 25 28Q11 34 7 58Z" fill="url(#' + id + 'h)"/><path d="M50 2Q50 18 50 31" stroke="' + hcD + '" stroke-width="1.1" opacity=".5" fill="none"/><path d="M24 14Q36 7 46 9M76 14Q64 7 54 9" stroke="' + hcL + '" stroke-width="2.2" fill="none" opacity=".5" stroke-linecap="round"/>'
+      : '<path d="M9 54Q4 9 50 7Q96 9 91 54Q82 31 50 27Q18 31 9 54Z" fill="url(#' + id + 'h)"/><path d="M30 14Q50 8 70 14" stroke="' + hcL + '" stroke-width="2.2" fill="none" opacity=".55" stroke-linecap="round"/>';
+  var frk = fr ? '<g fill="' + skD + '" opacity=".55"><circle cx="30" cy="66" r=".8"/><circle cx="35" cy="69" r=".8"/><circle cx="27" cy="71" r=".8"/><circle cx="70" cy="66" r=".8"/><circle cx="65" cy="69" r=".8"/><circle cx="73" cy="71" r=".8"/></g>' : '';
+  return '<svg viewBox="0 0 100 100" width="100%" height="100%" style="display:block">' + defs +
+    '<rect width="100" height="100" fill="' + skD + '"/>' + back +
+    '<ellipse cx="14.5" cy="59" rx="4.6" ry="7.2" fill="' + sk + '"/><ellipse cx="14.5" cy="59.5" rx="2" ry="4.2" fill="' + skD + '" opacity=".4"/>' +
+    '<ellipse cx="85.5" cy="59" rx="4.6" ry="7.2" fill="' + sk + '"/><ellipse cx="85.5" cy="59.5" rx="2" ry="4.2" fill="' + skD + '" opacity=".4"/>' +
+    '<ellipse cx="50" cy="58" rx="35" ry="38" fill="url(#' + id + 's)"/>' + bun + front +
+    '<path d="M22 44Q32 38.5 42 42.5M58 42.5Q68 38.5 78 44" stroke="' + hc + '" stroke-width="2.9" fill="none" stroke-linecap="round"/>' +
+    eye(33, -1) + eye(67, 1) +
+    '<ellipse cx="24" cy="70" rx="9" ry="6" fill="url(#' + id + 'b)"/><ellipse cx="76" cy="70" rx="9" ry="6" fill="url(#' + id + 'b)"/>' + frk +
+    '<ellipse cx="50" cy="62" rx="1.7" ry="2.8" fill="' + skL + '" opacity=".55"/><path d="M47.3 66.6Q50 69.4 52.7 66.6" stroke="' + skD + '" stroke-width="1.7" fill="none" stroke-linecap="round"/>' +
+    '<g class="fm1"><path d="M39 75Q45 72.4 50 74Q55 72.4 61 75Q50 78.6 39 75Z" fill="#c2415c"/><path d="M40.5 75.6Q50 85 59.5 75.6Q50 78.4 40.5 75.6Z" fill="url(#' + id + 'l)"/><ellipse cx="50" cy="79.8" rx="3.4" ry="1" fill="#fff" opacity=".35"/></g>' +
+    '<g class="fm2" style="display:none"><path d="M38.5 75Q50 71.5 61.5 75Q59 88 50 88.5Q41 88 38.5 75Z" fill="#5b0f1d"/><path d="M41 75.4Q50 73.2 59 75.4L58.2 79Q50 77.6 41.8 79Z" fill="#fff"/><ellipse cx="50" cy="84.5" rx="5.5" ry="3" fill="#f0627a"/></g>' +
     '</svg>';
 }
 function dtFaceMouth(el, open) {                // الفم يُفتح عند الأكل والشرب
