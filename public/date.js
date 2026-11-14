@@ -165,108 +165,189 @@ var DT_SVG = {
 function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img&v=' + w.iv : ''; }
 
 
-/* ---------- وجوه مرسومة بدل صور الملف الشخصي: البشرة والشعر والتسريحة من معرّف الشخص ---------- */
-var DT_FSKIN = ['#f4d3bb', '#eec4a4', '#e6b690'];      // درجات بشرة الوجه (اسم مستقل عن DT_SKIN الخاص بالجسم)
-var DT_HAIR = ['#2b1a16', '#4a2c1a', '#6b4423', '#1f2937', '#8a3b1a'];
-var DT_EYE = ['#5a3a22', '#2b3a55', '#3f6b4a', '#6b4a1f'];
-var DT_SHIRT = ['#7c3aed', '#0f766e', '#be123c', '#1d4ed8'];
-var DT_FID = 0;
+/* ---------- وجوه كرتونية حرة (بلا إطار): الشكل مصفوفة look من 13 رقماً تُحفظ في الخادم (src/faces.js) ----------
+   الترتيب: [0 رأس، 1 شعر، 2 بشرة، 3 لون الشعر، 4 لون العين، 5 عين، 6 حاجب، 7 أنف، 8 فم، 9 نظارة، 10 لحية، 11 نمش، 12 لون القبعة]
+   من لم يختر شيئاً يُشتق له وجه ثابت من رقم حسابه (dtLookSeed). حدود الأرقام DT_LOOKMAX = LOOK_MAX في src/faces.js (يجب أن يتطابقا). */
+var DT_FSKIN = ['#ffdcc2', '#f6c9a4', '#e9b48a', '#d79d70'];      // اسم مستقل عن DT_SKIN الخاص بجسم الكانفاس (لا تدمجهما)
+var DT_HAIR = ['#2b1a16', '#5a3a22', '#8a5a2b', '#e0b04a', '#b8481f', '#1f2937', '#a3a3b0'];
+var DT_EYE = ['#5a3a22', '#2b6cb0', '#2f855a', '#7b4a1f'];
+var DT_CAP = ['#ef4444', '#3b82f6', '#10b981', '#f59e0b'];
+var DT_OL = '#3b2623';
+var DT_LOOKMAX = [8, 8, 4, 7, 4, 4, 3, 3, 3, 2, 3, 2, 4];
+var DT_SHAPES = [
+  'M50 20 C70 20 84 35 84 54 C84 73 70 88 50 88 C30 88 16 73 16 54 C16 35 30 20 50 20Z',
+  'M50 16 C71 16 80 36 80 55 C80 75 66 89 50 89 C34 89 20 75 20 55 C20 36 29 16 50 16Z',
+  'M50 24 C74 24 90 38 90 56 C90 76 72 88 50 88 C28 88 10 76 10 56 C10 38 26 24 50 24Z',
+  'M50 12 C68 12 76 30 76 52 C76 76 66 91 50 91 C34 91 24 76 24 52 C24 30 32 12 50 12Z',
+  'M30 20 C40 17 60 17 70 20 C82 24 84 38 84 54 C84 76 76 88 50 88 C24 88 16 76 16 54 C16 38 18 24 30 20Z',
+  'M50 18 C64 18 72 28 74 42 C76 54 88 62 86 74 C84 86 68 90 50 90 C32 90 16 86 14 74 C12 62 24 54 26 42 C28 28 36 18 50 18Z',
+  'M50 20 C72 18 84 28 82 46 C80 62 66 78 54 88 C51 90 49 90 46 88 C34 78 20 62 18 46 C16 28 28 18 50 20Z',
+  'M26 24 C38 18 62 18 74 24 C88 30 90 46 88 60 C86 78 70 88 50 88 C30 88 14 78 12 60 C10 46 12 30 26 24Z'
+];
+var DT_EARX = [16, 20, 10, 24, 16, 14, 18, 12];
+var DT_EYEX = [36, 35, 33, 37, 35, 36, 37, 33];
 function dtShade(hex, k) {
   var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
   function f(v) { return Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k))); }
   return '#' + ((1 << 24) | (f(r) << 16) | (f(g) << 8) | f(b)).toString(16).slice(1);
 }
-function dtFaceSvg(seed) {
-  var u = 'dtf' + (DT_FID++);
-  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_FSKIN[h % 3], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 4;
-  var bd = ((h >>> 12) % 4) * 0.7, ec = DT_EYE[(h >>> 16) % 4], fr = ((h >>> 20) % 3) === 0, shirt = DT_SHIRT[(h >>> 22) % 4];
-  var skL = dtShade(sk, 0.4), skD = dtShade(sk, -0.12), skDD = dtShade(sk, -0.34), hcD = dtShade(hc, -0.4), hcL = dtShade(hc, 0.28), ecD = dtShade(ec, -0.55);
-  var lipD = '#a8454f', lip = '#c9626b', EY = 50;
-  function eyeP(cx, o) {
-    var y = EY;
-    return 'M' + (cx - o * 5.6) + ' ' + (y + .5) + ' Q' + (cx - o * 2.6) + ' ' + (y - 3.9) + ' ' + (cx + o * .6) + ' ' + (y - 3.7) +
-      ' Q' + (cx + o * 4.6) + ' ' + (y - 3.4) + ' ' + (cx + o * 6.1) + ' ' + (y - .6) +
-      ' Q' + (cx + o * 3.2) + ' ' + (y + 3.1) + ' ' + cx + ' ' + (y + 3) + ' Q' + (cx - o * 3.6) + ' ' + (y + 2.8) + ' ' + (cx - o * 5.6) + ' ' + (y + .5) + 'Z';
+function dtLookSeed(seed) {                     // الوجه التلقائي الثابت لمن لم يختر
+  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), hair = (h >>> 3) % 8;
+  var fh = ([0, 5, 7].indexOf(hair) >= 0 && (h >>> 24) % 4 < 2) ? 1 + ((h >>> 24) % 2) : 0;
+  return [h % 8, hair, (h >>> 6) % 4, (h >>> 9) % 7, (h >>> 12) % 4, (h >>> 14) % 4, (h >>> 16) % 3, (h >>> 18) % 3, (h >>> 20) % 3,
+    (h >>> 22) % 4 === 0 ? 1 : 0, fh, (h >>> 26) % 4 === 0 ? 1 : 0, h % 4];
+}
+function dtLookOk(a) {
+  if (!a || a.length !== DT_LOOKMAX.length) return false;
+  for (var i = 0; i < a.length; i++) if (a[i] !== (a[i] | 0) || a[i] < 0 || a[i] >= DT_LOOKMAX[i]) return false;
+  return true;
+}
+function dtFaceSvg(seed, look) {
+  if (!dtLookOk(look)) look = dtLookSeed(seed);
+  var shape = look[0], hair = look[1], sk = DT_FSKIN[look[2]], hc = DT_HAIR[look[3]], ec = DT_EYE[look[4]], et = look[5], bt = look[6], nt = look[7], mt = look[8];
+  var gl = look[9], fh = look[10], fr = look[11], capc = DT_CAP[look[12]];
+  var bd = (((+seed || 7) >>> 0) % 4) * 0.7;
+  var skD = dtShade(sk, -0.16), hcL = dtShade(hc, 0.3), hcD = dtShade(hc, -0.25), OL = DT_OL, ex = DT_EYEX[shape], ey = 57, ear = DT_EARX[shape];
+  var S = ' stroke="' + OL + '" stroke-width="2.4" stroke-linejoin="round" stroke-linecap="round"';
+  function sym(x) { return x + '<g transform="translate(100 0) scale(-1 1)">' + x + '</g>'; }
+  function eye(cx) {
+    var o = '';
+    if (et === 2) return '<path d="M' + (cx - 6.5) + ' ' + (ey + 1.5) + ' Q' + cx + ' ' + (ey - 8) + ' ' + (cx + 6.5) + ' ' + (ey + 1.5) + '" fill="none"' + S + ' stroke-width="3"/>';
+    if (et === 0) o = '<ellipse cx="' + cx + '" cy="' + ey + '" rx="4.6" ry="5.8" fill="' + OL + '"/><circle cx="' + (cx - 1.5) + '" cy="' + (ey - 2) + '" r="1.7" fill="#fff"/>';
+    else if (et === 1) o = '<ellipse cx="' + cx + '" cy="' + ey + '" rx="6.6" ry="7.6" fill="#fff"' + S + ' stroke-width="1.8"/><circle cx="' + cx + '" cy="' + (ey + .6) + '" r="4.4" fill="' + ec + '"/><circle cx="' + cx + '" cy="' + (ey + .6) + '" r="2.3" fill="' + OL + '"/><circle cx="' + (cx - 1.6) + '" cy="' + (ey - 1.4) + '" r="1.4" fill="#fff"/>';
+    else o = '<ellipse cx="' + cx + '" cy="' + ey + '" rx="5.6" ry="7" fill="' + OL + '"/><ellipse cx="' + cx + '" cy="' + (ey + 1.6) + '" rx="3.4" ry="3.6" fill="' + ec + '" opacity=".85"/><circle cx="' + (cx - 1.8) + '" cy="' + (ey - 2.4) + '" r="2.1" fill="#fff"/><circle cx="' + (cx + 1.9) + '" cy="' + (ey + 2.6) + '" r="1" fill="#fff"/>';
+    return o + '<ellipse cx="' + cx + '" cy="' + ey + '" rx="8" ry="0" fill="' + sk + '"><animate attributeName="ry" values="0;0;9;0;0" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>';
   }
-  function eye(cx, o, id) {
-    var y = EY, P = eyeP(cx, o);
-    return '<clipPath id="' + u + id + '"><path d="' + P + '"/></clipPath>' +
-      '<ellipse cx="' + cx + '" cy="' + (y + 5.4) + '" rx="5.4" ry="1.5" fill="' + skD + '" opacity=".28" filter="url(#' + u + 'b)"/>' +
-      '<path d="' + P + '" fill="#f6f1ec"/>' +
-      '<g clip-path="url(#' + u + id + ')">' +
-        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="3.5" fill="' + ec + '"/>' +
-        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="3.5" fill="none" stroke="' + ecD + '" stroke-width=".7"/>' +
-        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="1.7" fill="#120d0b"/>' +
-        '<circle cx="' + (cx - o * .9) + '" cy="' + (y - 1.4) + '" r=".95" fill="#fff" opacity=".92"/>' +
-        '<ellipse cx="' + cx + '" cy="' + (y - 3.8) + '" rx="7" ry="2.3" fill="#2a1812" opacity=".3"/>' +
-        '<rect x="' + (cx - 8) + '" y="' + (y - 6) + '" width="16" height="0" fill="' + sk + '"><animate attributeName="height" values="0;0;10;0;0" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></rect>' +
-      '</g>' +
-      '<path d="M' + (cx - o * 5.9) + ' ' + (y + .4) + ' Q' + (cx - o * 2.6) + ' ' + (y - 4.3) + ' ' + (cx + o * .6) + ' ' + (y - 4.1) + ' Q' + (cx + o * 4.8) + ' ' + (y - 3.8) + ' ' + (cx + o * 6.4) + ' ' + (y - .9) + '" stroke="#2a1812" stroke-width="1.25" fill="none" stroke-linecap="round"/>' +
-      '<path d="M' + (cx + o * 6.2) + ' ' + (y - .8) + ' L' + (cx + o * 7.7) + ' ' + (y - 2) + '" stroke="#2a1812" stroke-width="1" stroke-linecap="round"/>' +
-      '<path d="M' + (cx - o * 4.8) + ' ' + (y + 2.3) + ' Q' + cx + ' ' + (y + 3.7) + ' ' + (cx + o * 4.6) + ' ' + (y + 1.6) + '" stroke="' + skDD + '" stroke-width=".55" fill="none" opacity=".7"/>' +
-      '<path d="M' + (cx - o * 5) + ' ' + (y - 4.4) + ' Q' + (cx - o * .5) + ' ' + (y - 6.6) + ' ' + (cx + o * 5.6) + ' ' + (y - 3.8) + '" stroke="' + skDD + '" stroke-width=".7" fill="none" opacity=".5" stroke-linecap="round"/>';
-  }
-  var brow = '<path d="M46 42.8 Q40 38.9 29.6 41.6 L30.3 43.6 Q38.6 41.2 46 45Z" fill="' + hcD + '"/>';
-  var back = '', front = '', lock = '', beard = '', strands = '';
-  function sp(d) { return '<path d="' + d + '" stroke="' + hcL + '" stroke-width=".7" fill="none" stroke-linecap="round" opacity=".55"/>'; }
-  var HG = 'url(#' + u + 'h)';
-  if (st === 0) {
-    front = '<path d="M23.2 50 C20.5 24 33 6 52 6.5 C70 7 80 22 76.8 50 C75.8 40 73 32.5 68 28.5 C60 33 47 31 38 25 C30 30 26 38 23.2 50Z" fill="' + HG + '"/><path d="M41 9 Q43.5 17 40 24" stroke="' + hcD + '" stroke-width=".8" fill="none" opacity=".5"/>' + sp('M32 18 Q44 9 60 11') + sp('M28 29 Q40 16 62 17') + sp('M65 14 Q72 20 73 34');
-  } else if (st === 1) {
-    back = '<path d="M19.5 58 C15.5 22 31 5 50 5 C69 5 84.5 22 80.5 58 C80.5 76 84 90 90 100 L10 100 C16 90 19.5 76 19.5 58Z" fill="' + HG + '"/>';
-    front = '<path d="M23.6 56 C20.5 24 33 7 50 7 C67 7 79.5 24 76.4 56 C75.5 42 68.5 30 51.2 22.5 L48.8 22.5 C31.5 30 24.5 42 23.6 56Z" fill="' + HG + '"/>' + sp('M50 8 Q36 12 28 30') + sp('M50 8 Q64 12 72 30');
-    lock = '<path d="M22.8 40 C20.5 62 22.5 82 17 98 L30 98 C27 82 27.5 62 27.5 46Z" fill="' + HG + '"/><path d="M77.2 40 C79.5 62 77.5 82 83 98 L70 98 C73 82 72.5 62 72.5 46Z" fill="' + HG + '"/>' + sp('M21.5 66 Q22 84 18 96') + sp('M78.5 66 Q78 84 82 96');
-  } else if (st === 2) {
-    back = '<path d="M19.5 58 C15 22 31 5 50 5 C69 5 85 22 80.5 58 C81.5 68 80 78 76 84 L24 84 C20 78 18.5 68 19.5 58Z" fill="' + HG + '"/>';
-    front = '<path d="M23.5 54 C21 24 36 8 54 9.5 C70 11 79 26 76.5 54 C74.5 40 69 32 62 29.5 C52 36 38 36 29 46 C26 48 24.5 51 23.5 54Z" fill="' + HG + '"/>' + sp('M36 14 Q50 8 66 14') + sp('M30 35 Q42 23 58 25');
-  } else {
-    front = '<path d="M23.4 48 C21.5 24 33 8 50 8 C67 8 78.5 24 76.6 48 C75 38 71 29 64 26 C56 28 44 28 36 26 C29 29 25 38 23.4 48Z" fill="' + HG + '"/>' + sp('M32 15 Q50 9 68 15');
-    beard = '<path d="M25.2 58 C26.5 74 34 87 50 88 C66 87 73.5 74 74.8 58 C72.5 68 66 73 61 73 Q50 70.6 39 73 C34 73 27.5 68 25.2 58Z" fill="' + hc + '" opacity=".5"/>';
-  }
-  var frk = fr ? '<g fill="#b9805c" opacity=".38"><circle cx="41" cy="61" r=".7"/><circle cx="44.5" cy="62.5" r=".7"/><circle cx="38" cy="63" r=".7"/><circle cx="59" cy="61" r=".7"/><circle cx="55.5" cy="62.5" r=".7"/><circle cx="62" cy="63" r=".7"/><circle cx="47.5" cy="58.5" r=".6"/><circle cx="52.5" cy="58.5" r=".6"/></g>' : '';
-  return '<svg viewBox="6 3 88 88" width="100%" height="100%" style="display:block">' +
-    '<defs>' +
-      '<linearGradient id="' + u + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#efe9f7"/><stop offset="1" stop-color="#c9bcdf"/></linearGradient>' +
-      '<radialGradient id="' + u + 'f" cx=".5" cy=".4" r=".68"><stop offset="0" stop-color="' + dtShade(sk, 0.14) + '"/><stop offset=".72" stop-color="' + sk + '"/><stop offset="1" stop-color="' + skD + '"/></radialGradient>' +
-      '<linearGradient id="' + u + 'n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + skDD + '"/><stop offset=".35" stop-color="' + skD + '"/><stop offset="1" stop-color="' + sk + '"/></linearGradient>' +
-      '<linearGradient id="' + u + 'h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + dtShade(hc, 0.1) + '"/><stop offset="1" stop-color="' + hcD + '"/></linearGradient>' +
-      '<filter id="' + u + 'b" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter>' +
-    '</defs>' +
-    '<rect width="100" height="100" fill="url(#' + u + 'g)"/>' + back +
-    '<path d="M40.5 72 L40.5 93 L59.5 93 L59.5 72Z" fill="url(#' + u + 'n)"/>' +
-    '<path d="M5 100 Q9 92 34 90 L66 90 Q91 92 95 100Z" fill="' + shirt + '"/><path d="M41 90 L50 98.5 L59 90Z" fill="' + skD + '"/>' +
-    '<ellipse cx="50" cy="88.5" rx="12" ry="3.6" fill="' + skDD + '" opacity=".4" filter="url(#' + u + 'b)"/>' +
-    '<ellipse cx="23.4" cy="54" rx="3.8" ry="6.5" fill="' + skD + '"/><ellipse cx="23.9" cy="54" rx="1.8" ry="3.7" fill="' + skDD + '" opacity=".45"/>' +
-    '<ellipse cx="76.6" cy="54" rx="3.8" ry="6.5" fill="' + skD + '"/><ellipse cx="76.1" cy="54" rx="1.8" ry="3.7" fill="' + skDD + '" opacity=".45"/>' +
-    '<path d="M50 13 C70 13 77.5 28 76.5 46 C76 62 72.5 75 63.5 82.5 C58.5 87 41.5 87 36.5 82.5 C27.5 75 24 62 23.5 46 C22.5 28 30 13 50 13Z" fill="url(#' + u + 'f)"/>' +
-    '<g filter="url(#' + u + 'b)"><ellipse cx="50" cy="29" rx="13" ry="6" fill="' + skL + '" opacity=".4"/><ellipse cx="31" cy="66" rx="6" ry="4" fill="#e8808a" opacity=".2"/><ellipse cx="69" cy="66" rx="6" ry="4" fill="#e8808a" opacity=".2"/><ellipse cx="50" cy="84" rx="8" ry="2.4" fill="' + skD + '" opacity=".35"/></g>' +
-    beard +
-    brow + '<g transform="translate(100 0) scale(-1 1)">' + brow + '</g>' +
-    eye(38.5, -1, 'e1') + eye(61.5, 1, 'e2') +
-    '<path d="M46.2 52 Q45.2 60 43.6 65.6" stroke="' + skDD + '" stroke-width=".9" fill="none" opacity=".16" stroke-linecap="round"/><path d="M53.8 52 Q54.8 60 56.4 65.6" stroke="' + skDD + '" stroke-width=".9" fill="none" opacity=".16" stroke-linecap="round"/>' +
-    '<ellipse cx="50" cy="64.6" rx="2.3" ry="3" fill="' + skL + '" opacity=".5"/>' +
-    '<ellipse cx="50" cy="72" rx="4.6" ry="1.2" fill="' + skDD + '" opacity=".2"/>' +
-    '<path d="M43.2 66.4 Q43 69.6 46.6 69.8 Q50 71 53.4 69.8 Q57 69.6 56.8 66.4" stroke="' + skDD + '" stroke-width="1" fill="none" opacity=".6" stroke-linecap="round"/>' +
-    '<ellipse cx="47.3" cy="69.4" rx="1.5" ry=".8" fill="#6b3d2e" opacity=".6"/><ellipse cx="52.7" cy="69.4" rx="1.5" ry=".8" fill="#6b3d2e" opacity=".6"/>' + frk +
-    '<g class="fm1"><path d="M41.6 76 Q50 78.2 58.4 76" stroke="#7e2f3b" stroke-width=".9" fill="none"/><path d="M41.8 76 Q45.6 73.2 50 74.4 Q54.4 73.2 58.2 76 Q50 77.2 41.8 76Z" fill="' + lipD + '"/><path d="M43.2 76.6 Q50 82.2 56.8 76.6 Q50 78 43.2 76.6Z" fill="' + lip + '"/><ellipse cx="50" cy="79" rx="2.6" ry=".7" fill="#fff" opacity=".3"/><path d="M40.6 74.9 Q41 76.1 41.8 76.4M59.4 74.9 Q59 76.1 58.2 76.4" stroke="' + skDD + '" stroke-width=".6" fill="none" opacity=".6" stroke-linecap="round"/></g>' +
-    '<g class="fm2" style="display:none"><path d="M41 75.6 Q50 73.2 59 75.6 Q58 82.6 50 83.2 Q42 82.6 41 75.6Z" fill="#5e1420"/><path d="M43 75.8 Q50 74.4 57 75.8 L56.2 79 Q50 77.8 43.8 79Z" fill="#fff"/><ellipse cx="50" cy="80.6" rx="4.4" ry="1.9" fill="#d4687a"/><path d="M41 75.6 Q45.5 73 50 74.2 Q54.5 73 59 75.6" stroke="' + lipD + '" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M41.6 76.6 Q50 85.4 58.4 76.6" stroke="' + lip + '" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
-    front + lock +
-    '</svg>';
+  var browP = ['M' + (ex - 7) + ' ' + (ey - 11) + ' Q' + ex + ' ' + (ey - 16) + ' ' + (ex + 7) + ' ' + (ey - 11), 'M' + (ex - 7) + ' ' + (ey - 12) + ' L' + (ex + 7) + ' ' + (ey - 12.5), 'M' + (ex - 7) + ' ' + (ey - 10) + ' Q' + (ex + 1) + ' ' + (ey - 15) + ' ' + (ex + 7) + ' ' + (ey - 14.5)][bt];
+  var brow = '<path d="' + browP + '" fill="none" stroke="' + hcD + '" stroke-width="' + (bt === 2 ? 3.6 : 2.8) + '" stroke-linecap="round"/>';
+  var nose = ['<path d="M47.5 66 Q50 69.5 52.5 66" fill="none" stroke="' + skD + '" stroke-width="2" stroke-linecap="round"/>', '<ellipse cx="50" cy="66" rx="3.4" ry="2.7" fill="' + skD + '"/>', '<path d="M51.5 60 Q46.5 66 50.5 68 L53.5 67" fill="none" stroke="' + skD + '" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>'][nt];
+  var mc = '#6b2d35', m1 = ['<path d="M41 75 Q50 85 59 75" fill="none" stroke="' + mc + '" stroke-width="2.4" stroke-linecap="round"/>', '<path d="M41 76 Q45.5 82 50 76 Q54.5 82 59 76" fill="none" stroke="' + mc + '" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/>', '<path d="M42 77 Q50 81 59 73" fill="none" stroke="' + mc + '" stroke-width="2.4" stroke-linecap="round"/>'][mt];
+  var m2 = '<path d="M40 74 Q50 71 60 74 Q58 88 50 88 Q42 88 40 74Z" fill="#7a1f2e"' + S + ' stroke-width="2"/><path d="M42.5 74.6 Q50 72.6 57.5 74.6 L56.5 78 Q50 76.6 43.5 78Z" fill="#fff"/><ellipse cx="50" cy="83.4" rx="5" ry="2.8" fill="#ee7186"/>';
+  var back = '', front = '';
+  function cloud(c, r) { return '<circle cx="' + c[0] + '" cy="' + c[1] + '" r="' + r + '"'; }
+  function hl(d) { return '<path d="' + d + '" fill="none" stroke="' + hcL + '" stroke-width="2.2" stroke-linecap="round" opacity=".7"/>'; }
+  var HF = ' fill="' + hc + '"' + S;
+  if (hair === 0) front = '<path d="M17 54 C12 24 34 10 52 12 C72 12 90 26 83 54 C81 42 75 34 66 32 C58 37 40 37 32 32 C24 36 19 44 17 54Z"' + HF + '/><path d="M52 12 C49 3 60 1 62 8" fill="none"' + S + '/>' + hl('M32 20 Q44 13 58 15');
+  else if (hair === 1) { back = '<path d="M12 60 C6 18 30 6 50 6 C70 6 94 18 88 60 L93 98 L7 98Z"' + HF + '/>'; front = '<path d="M17 56 C14 26 34 13 50 13 C66 13 86 26 83 56 C79 40 70 30 56 28 C44 34 26 36 17 56Z"' + HF + '/>' + hl('M30 20 Q42 15 56 17'); }
+  else if (hair === 2) { back = sym('<path d="M20 38 C2 36 -2 62 6 84 C14 74 22 62 24 50Z"' + HF + '/><circle cx="17" cy="42" r="3.6" fill="#ec4899"' + S + ' stroke-width="1.6"/>'); front = '<path d="M17 52 C13 24 34 11 50 11 C66 11 87 24 83 52 C81 40 71 33 50 32 C29 33 19 40 17 52Z"' + HF + '/><path d="M32 33 Q38 40 44 33 Q50 41 56 33 Q62 40 68 33" fill="none"' + S + ' stroke-width="2"/>' + hl('M30 18 Q42 12 58 14'); }
+  else if (hair === 3) { back = '<circle cx="50" cy="10" r="10.5"' + HF + '/>'; front = '<path d="M18 52 C14 28 34 17 50 17 C66 17 86 28 82 52 C78 41 68 33 50 31 C32 33 22 41 18 52Z"' + HF + '/>' + hl('M32 24 Q44 18 58 20'); }
+  else if (hair === 4) { var cs = [[50, 28, 24], [22, 44, 15], [78, 44, 15], [30, 20, 14], [70, 20, 14], [12, 58, 8], [88, 58, 8]]; back = cs.map(function (c) { return cloud(c, c[2]) + ' fill="' + hc + '"' + S + '/>'; }).join('') + cs.map(function (c) { return cloud(c, c[2] - 1.2) + ' fill="' + hc + '"/>'; }).join(''); front = '<path d="M23 48 C24 32 38 27 50 27 C62 27 76 32 77 48 C70 38 60 36 50 36 C40 36 30 38 23 48Z" fill="' + hc + '"/>' + hl('M30 24 Q42 18 56 20'); }
+  else if (hair === 5) front = '<path d="M17 52 L14 30 L27 35 L28 13 L41 26 L50 6 L59 26 L72 13 L73 35 L86 30 L83 52 C79 41 70 37 50 37 C30 37 21 41 17 52Z"' + HF + '/>' + hl('M30 36 L32 22');
+  else if (hair === 6) { back = '<path d="M12 60 C6 22 30 8 50 8 C70 8 94 22 88 60 C89 72 86 80 82 84 L18 84 C14 80 11 72 12 60Z"' + HF + '/>'; front = '<path d="M17 56 C14 28 34 13 52 13 C74 13 86 30 83 56 C81 45 75 36 67 34 C55 44 37 46 25 50 C21 51 18 53 17 56Z"' + HF + '/>' + hl('M30 22 Q44 14 62 17'); }
+  else front = '<path d="M16 46 C14 18 34 8 50 8 C66 8 86 18 84 46Z" fill="' + capc + '"' + S + '/><path d="M12 42 Q50 32 88 42 L88 52 Q50 42 12 52Z" fill="' + dtShade(capc, 0.35) + '"' + S + '/><circle cx="50" cy="6" r="6" fill="#fff"' + S + '/>';
+  var fhS = '';
+  if (fh === 1) fhS = '<path d="M17 66 C19 88 34 98 50 98 C66 98 81 88 83 66 C77 76 64 80 50 80 C36 80 23 76 17 66Z"' + HF + '/><ellipse cx="50" cy="78" rx="12" ry="7.5" fill="' + sk + '"/>';
+  else if (fh === 2) fhS = '<path d="M38 71 Q44 65 50 70 Q56 65 62 71 Q56 75 50 72 Q44 75 38 71Z"' + HF + '/>';
+  var glasses = gl ? '<circle cx="' + ex + '" cy="' + ey + '" r="10" fill="#bfe3ff" fill-opacity=".28" stroke="#2b2b35" stroke-width="2.2"/><circle cx="' + (100 - ex) + '" cy="' + ey + '" r="10" fill="#bfe3ff" fill-opacity=".28" stroke="#2b2b35" stroke-width="2.2"/><path d="M' + (ex + 10) + ' ' + (ey - 1) + ' Q50 ' + (ey - 4) + ' ' + (90 - ex) + ' ' + (ey - 1) + '" fill="none" stroke="#2b2b35" stroke-width="2.2"/>' : '';
+  var frk = fr ? '<g fill="#c68b64"><circle cx="38" cy="68" r="1"/><circle cx="43" cy="70" r="1"/><circle cx="34" cy="71" r="1"/><circle cx="62" cy="68" r="1"/><circle cx="57" cy="70" r="1"/><circle cx="66" cy="71" r="1"/></g>' : '';
+  return '<svg viewBox="-4 -6 108 108" width="100%" height="100%" style="display:block;overflow:visible">' + back +
+    sym('<circle cx="' + ear + '" cy="60" r="6.6" fill="' + sk + '"' + S + '/><path d="M' + (ear - 1.6) + ' 57 Q' + (ear + 1.8) + ' 60 ' + (ear - 1.6) + ' 63.4" fill="none" stroke="' + skD + '" stroke-width="1.6" stroke-linecap="round"/>') +
+    '<path d="' + DT_SHAPES[shape] + '" fill="' + sk + '"' + S + '/>' +
+    '<path d="M30 40 Q34 33 42 31" fill="none" stroke="#fff" stroke-width="2.4" stroke-linecap="round" opacity=".38"/>' +
+    sym('<ellipse cx="' + (ex - 5) + '" cy="70" rx="6.4" ry="4.4" fill="#ff7b95" opacity=".42"/>') + fhS +
+    sym(brow) + eye(ex) + eye(100 - ex) + nose + frk +
+    '<g class="fm1">' + m1 + '</g><g class="fm2" style="display:none">' + m2 + '</g>' + glasses + front + '</svg>';
 }
 function dtFaceMouth(el, open) {                // الفم يُفتح عند الأكل والشرب
   var f = el._fc; if (!f || f.o === open) return;
   f.o = open; f.a.style.display = open ? 'none' : ''; f.b.style.display = open ? '' : 'none';
 }
-
-function dtChar(letter, grad, glow, bubId, url, seed) {
-  var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;will-change:transform;transition:opacity .4s');
-  var bub = dtNode('div', 'position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:calc(var(--s)*2.6);min-height:30px;padding:7px 11px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:14px;line-height:1.4');
-  bub.id = bubId;
-  var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.26);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, '');
-  av.className = 'dtav';
-  av.innerHTML = dtFaceSvg(seed);                 // وجه مرسوم (رسم ثابت من الكود فقط)
+function dtSetFace(c, seed, look) {              // يرسم/يبدّل وجه شخصية (عند البناء، وبعد الحفظ، وعند تغيّر وجه الشريك)
+  var av = c && c.querySelector('.dtav'); if (!av) return;
+  if (!dtLookOk(look)) look = dtLookSeed(seed);
+  av.innerHTML = dtFaceSvg(seed, look);          // رسم ثابت من الكود فقط (الأرقام تُتحقق قبل الرسم)
   c._fc = { a: av.querySelector('.fm1'), b: av.querySelector('.fm2'), o: 0 };
+  c._look = look.slice();
+  c._skin = DT_FSKIN[look[2]];                   // لون الرقبة واليدين على الكانفاس يطابق البشرة
+}
+
+/* ---------- دولاب الشكل: نافذة اختيار وتخصيص الوجه مع معاينة حيّة ---------- */
+var DT_WTABS = [
+  { n: '👤 الرأس', rows: [{ l: 'شكل الرأس', i: 0, k: 'f' }] },
+  { n: '💇 الشعر', rows: [{ l: 'التسريحة', i: 1, k: 'f' }, { l: 'لون القبعة', i: 12, k: 's', c: DT_CAP, only: 7 }, { l: 'لون الشعر', i: 3, k: 's', c: DT_HAIR }] },
+  { n: '👀 العينان', rows: [{ l: 'شكل العين', i: 5, k: 'f' }, { l: 'لون العين', i: 4, k: 's', c: DT_EYE }] },
+  { n: '🙂 الملامح', rows: [{ l: 'الحاجبان', i: 6, k: 'f' }, { l: 'الأنف', i: 7, k: 'f' }, { l: 'الفم', i: 8, k: 'f' }] },
+  { n: '🎨 البشرة', rows: [{ l: 'لون البشرة', i: 2, k: 's', c: DT_FSKIN }] },
+  { n: '✨ إضافات', rows: [{ l: 'نظارة (بدون / نظارة)', i: 9, k: 'f' }, { l: 'لحية (بدون / لحية / شارب)', i: 10, k: 'f' }, { l: 'نمش (بدون / نمش)', i: 11, k: 'f' }] }
+];
+function dtWardrobe() {
+  if (!DT.root || DT.root.querySelector('#dtwd')) return;
+  var mc = DT.els && DT.els.m; if (!mc) return;
+  var cur = mc._look ? mc._look.slice() : dtLookSeed(DT.myId), tab = 0, busy = 0;
+  var ov = dtNode('div', 'position:absolute;inset:0;z-index:70;background:#000b;display:flex;align-items:center;justify-content:center;padding:10px;direction:rtl');
+  ov.id = 'dtwd';
+  var pn = dtNode('div', 'width:min(480px,100%);max-height:96%;overflow:auto;background:#1e1736;border:1px solid #fff4;border-radius:16px;padding:12px;color:#fff;display:flex;flex-direction:column;gap:10px;font:inherit;box-shadow:0 10px 40px #000a');
+  var head = dtNode('div', 'display:flex;align-items:center;gap:10px');
+  var pv = dtNode('div', 'width:112px;height:112px;flex:none;background:radial-gradient(circle at 50% 40%,#4b3a6e,#2a2147);border-radius:14px;padding:4px');
+  var ttl = dtNode('div', 'flex:1;display:flex;flex-direction:column;gap:6px');
+  ttl.appendChild(dtNode('b', 'font-size:18px', '🎭 دولاب الشكل'));
+  ttl.appendChild(dtNode('span', 'font-size:12px;opacity:.8', 'اختر كل جزء وشاهد النتيجة فوراً، ثم اضغط حفظ ليراك شريكك بهذا الشكل.'));
+  head.appendChild(pv); head.appendChild(ttl); pn.appendChild(head);
+  var tb = dtNode('div', 'display:flex;gap:6px;flex-wrap:wrap'); pn.appendChild(tb);
+  var body = dtNode('div', 'display:flex;flex-direction:column;gap:10px;min-height:120px'); pn.appendChild(body);
+  var act = dtNode('div', 'display:flex;gap:8px;flex-wrap:wrap;justify-content:center;margin-top:4px');
+  var bs = 'border-radius:10px;padding:9px 14px;cursor:pointer;font:inherit;color:#fff;border:1px solid #fff5;background:transparent';
+  function btn(t, css, fn) { var b = dtNode('button', bs + ';' + (css || ''), t); b.onclick = fn; act.appendChild(b); return b; }
+  btn('🎲 عشوائي', '', function () { cur = DT_LOOKMAX.map(function (m) { return Math.floor(Math.random() * m); }); draw(); });
+  btn('↩️ افتراضي', '', function () { cur = dtLookSeed(DT.myId); draw(); });
+  var sv = btn('💾 حفظ', 'background:#fb7185;border-color:#fb7185;font-weight:700', function () {
+    if (busy) return; busy = 1; sv.style.opacity = '.6';
+    api('date/face', { look: cur }).then(function (r) {
+      busy = 0; sv.style.opacity = '1';
+      if (r.j && r.j.ok && DT.root) {
+        dtSetFace(DT.els.m, DT.myId, r.j.look); DT.mylook = r.j.look.slice();
+        dtWsSend({ t: 'face', look: r.j.look });     // يصل الشريك فوراً دون إعادة تحميل
+        ov.remove(); dtToast('✅ حُفظ شكلك');
+      } else if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر الحفظ'));
+    }, function () { busy = 0; sv.style.opacity = '1'; dtToast('⚠️ تعذر الاتصال بالخادم'); });
+  });
+  btn('✖ إغلاق', '', function () { ov.remove(); });
+  pn.appendChild(act); ov.appendChild(pn);
+  function thumb(i, k, on) {
+    var v = cur.slice(); v[i] = k;
+    var b = dtNode('button', 'width:62px;height:62px;padding:2px;border-radius:12px;cursor:pointer;background:#2e2550;border:2px solid ' + (on ? '#fb7185' : '#fff2') + ';box-shadow:' + (on ? '0 0 10px #fb718588' : 'none'));
+    b.innerHTML = dtFaceSvg(1, v);
+    return b;
+  }
+  function swatch(c, on) {
+    return dtNode('button', 'width:40px;height:40px;border-radius:50%;cursor:pointer;background:' + c + ';border:3px solid ' + (on ? '#fb7185' : '#fff4') + ';box-shadow:' + (on ? '0 0 10px #fb718588' : 'none'));
+  }
+  function draw() {
+    pv.innerHTML = dtFaceSvg(DT.myId, cur);
+    tb.textContent = '';
+    DT_WTABS.forEach(function (t, ti) {
+      var b = dtNode('button', 'border-radius:999px;padding:6px 12px;cursor:pointer;font:inherit;font-size:13px;color:#fff;border:1px solid ' + (ti === tab ? '#fb7185' : '#fff4') + ';background:' + (ti === tab ? '#fb718555' : 'transparent'), t.n);
+      b.onclick = function () { tab = ti; draw(); };
+      tb.appendChild(b);
+    });
+    body.textContent = '';
+    DT_WTABS[tab].rows.forEach(function (row) {
+      if (row.only != null && cur[1] !== row.only) return;
+      var w = dtNode('div', 'display:flex;flex-direction:column;gap:6px');
+      w.appendChild(dtNode('span', 'font-size:13px;opacity:.85', row.l));
+      var g = dtNode('div', 'display:flex;flex-wrap:wrap;gap:8px');
+      for (var k = 0; k < DT_LOOKMAX[row.i]; k++) (function (k) {
+        var b = row.k === 's' ? swatch(row.c[k], cur[row.i] === k) : thumb(row.i, k, cur[row.i] === k);
+        b.onclick = function () { cur[row.i] = k; draw(); };
+        g.appendChild(b);
+      })(k);
+      w.appendChild(g); body.appendChild(w);
+    });
+  }
+  draw();
+  DT.root.appendChild(ov);
+}
+
+function dtChar(letter, grad, glow, bubId, url, seed, look) {
+  var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;will-change:transform;transition:opacity .4s');
+  var bub = dtNode('div', 'position:absolute;bottom:calc(100% + var(--s)*.22);left:50%;transform:translateX(-50%);width:max-content;max-width:calc(var(--s)*2.6);min-height:30px;padding:7px 11px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:14px;line-height:1.4');
+  bub.id = bubId;
+  // رأس كرتوني حر (بلا دائرة ولا إطار ولا خلفية)، أكبر من الدائرة القديمة، وفمه عند الموضع الذي يحسبه dtMouth.
+  // الإزاحة بهوامش لا بـ transform: حلقة الرسم تكتب transform على هذا العنصر كل إطار (ميل/قفزة/جلوس)
+  var av = dtNode('div', 'position:absolute;left:50%;top:50%;margin:calc(var(--s)*-.698) 0 0 calc(var(--s)*-.55);width:calc(var(--s)*1.1);height:calc(var(--s)*1.1);pointer-events:none');
+  av.className = 'dtav';
   c.appendChild(bub); c.appendChild(av);
+  dtSetFace(c, seed, look);
   return c;
 }
 
@@ -337,7 +418,9 @@ function dtStageSize() {
 }
 
 /* ---------- المرحلة 2: الخلفيات والشخصيات بالكانفاس ---------- */
-var DT_SKIN = '#edbf9d';
+var DT_SKIN = '#edbf9d';                     // لون جسم افتراضي (الكانفاس)؛ الوجه له DT_FSKIN
+var DT_SKIN_NOW = DT_SKIN;                   // لون الشخصية التي تُرسم الآن (يضبطه dtSkinOf في بداية كل رسم)
+function dtSkinOf(role) { var e = DT.els && DT.els[role]; return (e && e._skin) || DT_SKIN; }
 var DT_PAL = {
   m: { top: '#0f766e', top2: '#2dd4bf', leg: '#1f2937', shoe: '#0b1220' },
   p: { top: '#be123c', top2: '#fb7185', leg: '#3b2f63', shoe: '#150f2b' }
@@ -406,13 +489,14 @@ function dtArm(g, sx, sy, hx, hy, pal, s) {
   g.lineCap = 'round'; g.lineJoin = 'round';
   g.strokeStyle = pal.top; g.lineWidth = s * 0.16;
   g.beginPath(); g.moveTo(sx, sy); g.lineTo(mx, my); g.stroke();
-  g.strokeStyle = DT_SKIN; g.lineWidth = s * 0.12;
+  g.strokeStyle = DT_SKIN_NOW; g.lineWidth = s * 0.12;
   g.beginPath(); g.moveTo(mx, my); g.lineTo(hx, hy); g.stroke();
-  g.fillStyle = DT_SKIN; g.beginPath(); g.arc(hx, hy, s * 0.075, 0, 7); g.fill();
+  g.fillStyle = DT_SKIN_NOW; g.beginPath(); g.arc(hx, hy, s * 0.075, 0, 7); g.fill();
 }
 // جسم الشخصية: الموضع (x,y) عند القدمين، والرأس (صورة الملف) عنصر DOM فوقه
 function dtFigureFront(g, c, pal, ts, here, link, fa) {
   var W = DT.sw, H = DT.sh, s = DT.s;
+  DT_SKIN_NOW = dtSkinOf(c === DT.ch.p ? 'p' : 'm');
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
   var sit = c.sit || 0, sdy = sit * s * 0.36;      // جلوس: ينزل الجسم نحو المقعد
   var mv = c.moving && !DT.still && sit < 0.02;
@@ -431,7 +515,7 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
     g.fillStyle = pal.shoe;
     g.beginPath(); g.ellipse(ex + d * s * 0.02, ey + s * 0.01, s * 0.12, s * 0.06, 0, 0, 7); g.fill();
   });
-  g.fillStyle = DT_SKIN; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob + sdy, s * 0.14, s * 0.26);
+  g.fillStyle = DT_SKIN_NOW; g.fillRect(fx - s * 0.07, fy - s * 1.36 - bob + sdy, s * 0.14, s * 0.26);
   var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
   g.fillStyle = gr;
   g.beginPath();
@@ -457,6 +541,7 @@ function dtFigureFront(g, c, pal, ts, here, link, fa) {
 // جلوس جانبي: جذع نحيف ومقعد وفخذ أفقي نحو الطاولة وساق عمودية وذراع واحدة ظاهرة (الرأس صورة الملف كما هي)
 function dtFigureSide(g, c, pal, ts, here, link, ta) {
   var W = DT.sw, H = DT.sh, s = DT.s, dir = c.sdir || 1;
+  DT_SKIN_NOW = dtSkinOf(c === DT.ch.p ? 'p' : 'm');
   var fx = (c.x == null ? 0.5 : c.x) * W, fy = (c.y == null ? 0.7 : c.y) * H;
   var hipY = fy - s * 0.30, shY = fy - s * 0.80, kx = fx + dir * s * 0.42;
   var fu = fx + (c.lean || 0) * s * 0.2 * dir;                  // الجذع العلوي ينحني نحو الطاولة عند الأكل
@@ -469,7 +554,7 @@ function dtFigureSide(g, c, pal, ts, here, link, ta) {
   g.lineWidth = s * 0.17;
   g.beginPath(); g.moveTo(kx, hipY); g.lineTo(kx, fy - s * 0.05); g.stroke();                     // الساق
   g.fillStyle = pal.shoe; g.beginPath(); g.ellipse(kx + dir * s * 0.06, fy - s * 0.02, s * 0.13, s * 0.06, 0, 0, 7); g.fill();
-  g.fillStyle = DT_SKIN; g.fillRect(fu + dir * s * 0.04 - s * 0.06, shY - s * 0.22, s * 0.12, s * 0.26);   // الرقبة
+  g.fillStyle = DT_SKIN_NOW; g.fillRect(fu + dir * s * 0.04 - s * 0.06, shY - s * 0.22, s * 0.12, s * 0.26);   // الرقبة
   var gr = g.createLinearGradient(0, shY, 0, hipY); gr.addColorStop(0, pal.top2); gr.addColorStop(1, pal.top);
   g.fillStyle = gr;
   g.beginPath();
@@ -925,7 +1010,7 @@ function dtEatFx(cx, W, H, s) {                // فوق الرؤوس: فمٌ ي
       if (sc > 0.02) cx.fillText(F.e, bx, by);
     }
     if (Math.hypot(hand[0] - mt.x, hand[1] - mt.y) < s * 0.6 && u > 0.3 && u < 0.85) {   // اليد فوق الوجه (الرأس عنصر فوق الكانفاس)
-      cx.fillStyle = DT_SKIN; cx.beginPath(); cx.arc(hand[0], hand[1], s * 0.075, 0, 7); cx.fill();
+      cx.fillStyle = dtSkinOf(dtRole(+id)); cx.beginPath(); cx.arc(hand[0], hand[1], s * 0.075, 0, 7); cx.fill();
     }
     if (e.k === 'feed' && u >= 0.6 && !e.h) {                         // وصلت اللقمة: قلوب
       e.h = 1;
@@ -1320,6 +1405,7 @@ function dtOnMsg(j) {
     for (var id in j.players) {
       var c = DT.ch[dtRole(+id)], p = j.players[id];
       dtSetPos(c, p.x, p.y, true); c.here = 1;
+      if (+id !== DT.myId && p.lk) dtSetFace(DT.els.p, DT.partId, p.lk);
     }
     for (var k in j.objs) dtObjSet(j.objs[k]);
     DT.near = j.near || { k: 0, fx: 1 };
@@ -1328,11 +1414,13 @@ function dtOnMsg(j) {
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
     DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {}; DT.sp = j.sp || null;
     if (dtDinner()) dtFlash('📖 المس قائمة العشاء لتطلب مشروباً وطعاماً، وللإطعام واقفين اقصدا الطاولة الصغيرة على اليمين');
+  } else if (j.t === 'face') {                 // الشريك غيّر شكله أثناء الموعد
+    if (j.id !== DT.myId && dtLookOk(j.look)) dtSetFace(DT.els.p, DT.partId, j.look);
   } else if (j.t === 'mode') {
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     dtFlash(DT.simple ? '🫧 النمط البسيط: فقاعتان للطرفين' : '🎭 عاد المشهد المتحرك');
   } else if (j.t === 'j') {
-    if (j.id !== DT.myId) { dtSetPos(DT.ch.p, j.x, j.y, true); DT.ch.p.here = 1; DT.sig = ''; dtSmHere(); }
+    if (j.id !== DT.myId) { dtSetPos(DT.ch.p, j.x, j.y, true); DT.ch.p.here = 1; DT.sig = ''; dtSmHere(); if (j.lk) dtSetFace(DT.els.p, DT.partId, j.lk); }
   } else if (j.t === 'l') {
     if (j.id !== DT.myId) { DT.ch.p.here = 0; DT.sig = ''; dtSmHere(); }
   } else if (j.t === 'p') {
@@ -1599,7 +1687,8 @@ function dtBuild(id, j) {
   var mn = (typeof me !== 'undefined' && me && me.name) || 'أنا';
   var pn = (typeof REL !== 'undefined' && REL && REL.active && REL.active.partner.name) || 'شريكي';
   DT.id = id; DT.ty = j.ty; DT.after = 0; DT.off = j.now - Date.now(); DT.started = j.started || j.now;
-  DT.myId = mine.id; DT.soff = DT.off; DT.still = dtReduce();
+  DT.myId = mine.id; DT.partId = part.id; DT.soff = DT.off; DT.still = dtReduce();
+  DT.mylook = dtLookOk(mine.look) ? mine.look.slice() : null;
   var lowMine = mine.id && part.id ? mine.id < part.id : false;
   DT.ch = { m: { x: null, y: null, tx: 0.7, ty: 0.72, sx: -1, sy: -1, here: 1, moving: 0 }, p: { x: null, y: null, tx: 0.3, ty: 0.72, here: 0, moving: 0 } };
   dtSetPos(DT.ch.m, lowMine ? 0.3 : 0.7, 0.72, true);       // نفس مواضع البداية في الخادم
@@ -1624,7 +1713,8 @@ function dtBuild(id, j) {
   var clk = dtNode('span', 'font-variant-numeric:tabular-nums', '00:00'); clk.id = 'dtm2'; top.appendChild(clk);
   var dot = dtNode('span', 'font-size:11px', '⚪'); dot.id = 'dtws'; top.appendChild(dot);
   top.appendChild(dtNode('span', 'flex:1'));
-  [['🎲 سؤال', function () { api('date/ask', { id: DT.id }).then(function (r) { if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر السؤال')); }); }],
+  [['🎭 شكلي', function () { dtWardrobe(); }],
+   ['🎲 سؤال', function () { api('date/ask', { id: DT.id }).then(function (r) { if (!(r.j && r.j.ok)) dtToast('⚠️ ' + ((r.j && r.j.error) || 'تعذر السؤال')); }); }],
    ['🫧 نمط بسيط', function () { dtToggleMode(); }],
    ['💞 حركات', function () { if (typeof gstOpen === 'function') gstOpen(); }],
    ['🔍 تقريب', function () { DT.zoomOn = DT.zoomOn ? 0 : 1; this.style.opacity = DT.zoomOn ? '1' : '0.5'; }],
@@ -1654,8 +1744,8 @@ function dtBuild(id, j) {
   DT.els.candle.appendChild(fl); DT.els.flame = fl;
   DT.els.rose = dtObjEl(DT_SVG.rose, 0.55, 'transform:translate(-50%,-70%)');
   DT.els.ball = dtObjEl(DT_SVG.ball, 0.5, 'margin:calc(var(--s)*-.25) 0 0 calc(var(--s)*-.25)');
-  DT.els.m = dtChar(mn.charAt(0), 'linear-gradient(135deg,#2dd4bf,#0f766e)', '#2dd4bf99', 'dbm', '', mine && mine.id);
-  DT.els.p = dtChar(pn.charAt(0), 'linear-gradient(135deg,#fb7185,#be123c)', '#fb718599', 'dbh', '', part && part.id);
+  DT.els.m = dtChar(mn.charAt(0), 'linear-gradient(135deg,#2dd4bf,#0f766e)', '#2dd4bf99', 'dbm', '', mine && mine.id, mine && mine.look);
+  DT.els.p = dtChar(pn.charAt(0), 'linear-gradient(135deg,#fb7185,#be123c)', '#fb718599', 'dbh', '', part && part.id, part && part.look);
   [DT.els.candle, DT.els.ball, DT.els.rose, DT.els.m, DT.els.p].forEach(function (e) { st.appendChild(e); });
   if (j.ty === 'عشاء رومانسي') {                // ورقة قائمة قائمة على المائدة: المسها لتفتح نافذة المشروبات
     var card = dtNode('div', 'position:absolute;left:45.5%;top:47.5%;width:calc(var(--s)*.55);height:calc(var(--s)*.7);transform:translate(-50%,-50%) rotate(-6deg);z-index:880;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:5px;background:linear-gradient(180deg,#fffaf0,#f3e3c3);border:1px solid #c9a56a;box-shadow:0 3px 8px #0007,0 0 14px #fde68a88;color:#5b3a12;font-size:calc(var(--s)*.18);line-height:1;animation:dtcard 2.4s ease-in-out infinite');
@@ -1712,7 +1802,7 @@ function dtBuild(id, j) {
   DT.onVis = dtVis;
   document.addEventListener('visibilitychange', DT.onVis);
   DT.onKey = function (e) {
-    if (e.key === 'Escape' && DT.root) { var bk = DT.root.querySelector('#dtbook'); if (bk) { bk.remove(); return; } }
+    if (e.key === 'Escape' && DT.root) { var bk = DT.root.querySelector('#dtbook') || DT.root.querySelector('#dtwd'); if (bk) { bk.remove(); return; } }
     if (e.key === 'Escape' && !document.getElementById('gstsheet')) dtClose();
   };
   document.addEventListener('keydown', DT.onKey);
