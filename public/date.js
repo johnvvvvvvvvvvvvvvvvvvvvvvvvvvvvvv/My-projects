@@ -166,45 +166,91 @@ function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img
 
 
 /* ---------- وجوه مرسومة بدل صور الملف الشخصي: البشرة والشعر والتسريحة من معرّف الشخص ---------- */
-var DT_SKIN = ['#fde3d1', '#fbd9c4', '#f9d0b8'];
+var DT_FSKIN = ['#f4d3bb', '#eec4a4', '#e6b690'];      // درجات بشرة الوجه (اسم مستقل عن DT_SKIN الخاص بالجسم)
 var DT_HAIR = ['#2b1a16', '#4a2c1a', '#6b4423', '#1f2937', '#8a3b1a'];
 var DT_EYE = ['#5a3a22', '#2b3a55', '#3f6b4a', '#6b4a1f'];
+var DT_SHIRT = ['#7c3aed', '#0f766e', '#be123c', '#1d4ed8'];
+var DT_FID = 0;
 function dtShade(hex, k) {
   var n = parseInt(hex.slice(1), 16), r = n >> 16, g = (n >> 8) & 255, b = n & 255;
   function f(v) { return Math.max(0, Math.min(255, Math.round(k < 0 ? v * (1 + k) : v + (255 - v) * k))); }
   return '#' + ((1 << 24) | (f(r) << 16) | (f(g) << 8) | f(b)).toString(16).slice(1);
 }
 function dtFaceSvg(seed) {
-  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_SKIN[h % 3], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 3;
-  var bd = ((h >>> 12) % 4) * 0.7, ec = DT_EYE[(h >>> 16) % 4], fr = ((h >>> 20) % 3) === 0;
-  var skD = dtShade(sk, -0.07), hcD = dtShade(hc, -0.35), hcL = dtShade(hc, 0.22), ecD = dtShade(ec, -0.5);
-  function eye(cx) {
-    var cy = 57;
-    return '<ellipse cx="' + cx + '" cy="' + cy + '" rx="6.2" ry="7.4" fill="#fff"/>' +
-      '<ellipse cx="' + cx + '" cy="' + (cy + 0.6) + '" rx="5" ry="6.2" fill="' + ec + '"/>' +
-      '<ellipse cx="' + cx + '" cy="' + (cy + 0.9) + '" rx="2.9" ry="3.8" fill="' + ecD + '"/>' +
-      '<circle cx="' + (cx - 1.9) + '" cy="' + (cy - 2) + '" r="2" fill="#fff"/><circle cx="' + (cx + 1.8) + '" cy="' + (cy + 2.6) + '" r="1" fill="#fff" opacity=".85"/>' +
-      '<ellipse cx="' + cx + '" cy="' + cy + '" rx="7" ry="0" fill="' + sk + '"><animate attributeName="ry" values="0;0;8;0;0" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
-      '<path d="M' + (cx - 7) + ' ' + (cy - 1) + ' Q' + cx + ' ' + (cy - 10.5) + ' ' + (cx + 7) + ' ' + (cy - 1) + '" stroke="#2a1812" stroke-width="2" fill="none" stroke-linecap="round"/>';
+  var u = 'dtf' + (DT_FID++);
+  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_FSKIN[h % 3], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 4;
+  var bd = ((h >>> 12) % 4) * 0.7, ec = DT_EYE[(h >>> 16) % 4], fr = ((h >>> 20) % 3) === 0, shirt = DT_SHIRT[(h >>> 22) % 4];
+  var skL = dtShade(sk, 0.4), skD = dtShade(sk, -0.12), skDD = dtShade(sk, -0.34), hcD = dtShade(hc, -0.4), hcL = dtShade(hc, 0.28), ecD = dtShade(ec, -0.55);
+  var lipD = '#a8454f', lip = '#c9626b', EY = 50;
+  function eyeP(cx, o) {
+    var y = EY;
+    return 'M' + (cx - o * 5.6) + ' ' + (y + .5) + ' Q' + (cx - o * 2.6) + ' ' + (y - 3.9) + ' ' + (cx + o * .6) + ' ' + (y - 3.7) +
+      ' Q' + (cx + o * 4.6) + ' ' + (y - 3.4) + ' ' + (cx + o * 6.1) + ' ' + (y - .6) +
+      ' Q' + (cx + o * 3.2) + ' ' + (y + 3.1) + ' ' + cx + ' ' + (y + 3) + ' Q' + (cx - o * 3.6) + ' ' + (y + 2.8) + ' ' + (cx - o * 5.6) + ' ' + (y + .5) + 'Z';
   }
-  var back = st === 1 ? '<path d="M0 100V48Q-2 0 50 0Q102 0 100 48V100Q85 94 83 72L17 72Q15 94 0 100Z" fill="' + hc + '"/>' : '';
-  var bun = st === 2 ? '<circle cx="21" cy="25" r="10" fill="' + hc + '"/><circle cx="79" cy="25" r="10" fill="' + hc + '"/><path d="M16 21Q20 17 25 19M75 19Q80 17 84 21" stroke="' + hcL + '" stroke-width="1.6" fill="none" stroke-linecap="round"/>' : '';
-  var front = st === 0
-    ? '<path d="M12 52Q6 10 50 6Q94 10 88 52Q84 36 66 31Q44 44 24 36Q15 41 12 52Z" fill="' + hc + '"/><path d="M30 15Q48 9 68 15" stroke="' + hcL + '" stroke-width="2.6" fill="none" stroke-linecap="round"/>'
-    : st === 1
-      ? '<path d="M11 60Q4 8 50 5Q96 8 89 60Q88 40 78 31Q64 40 50 28Q36 40 22 31Q12 40 11 60Z" fill="' + hc + '"/><path d="M28 14Q40 8 48 10M72 14Q60 8 52 10" stroke="' + hcL + '" stroke-width="2.2" fill="none" stroke-linecap="round"/>'
-      : '<path d="M12 52Q7 12 50 9Q93 12 88 52Q80 34 50 31Q20 34 12 52Z" fill="' + hc + '"/><path d="M30 17Q50 11 70 17" stroke="' + hcL + '" stroke-width="2.4" fill="none" stroke-linecap="round"/>';
-  var frk = fr ? '<g fill="' + skD + '"><circle cx="29" cy="70" r="1"/><circle cx="34" cy="73" r="1"/><circle cx="26" cy="74" r="1"/><circle cx="71" cy="70" r="1"/><circle cx="66" cy="73" r="1"/><circle cx="74" cy="74" r="1"/></g>' : '';
-  return '<svg viewBox="0 0 100 100" width="100%" height="100%" style="display:block">' +
-    '<rect width="100" height="100" fill="' + sk + '"/>' +
-    '<ellipse cx="15" cy="62" rx="4.4" ry="6.6" fill="' + sk + '"/><ellipse cx="85" cy="62" rx="4.4" ry="6.6" fill="' + sk + '"/>' + back +
-    '<ellipse cx="50" cy="60" rx="35" ry="38" fill="' + sk + '"/>' + bun + front +
-    '<path d="M24 46Q33 40 42 44M58 44Q67 40 76 46" stroke="' + hc + '" stroke-width="2.6" fill="none" stroke-linecap="round"/>' +
-    eye(34) + eye(66) +
-    '<ellipse cx="24" cy="73" rx="8" ry="5" fill="#fb7185" opacity=".35"/><ellipse cx="76" cy="73" rx="8" ry="5" fill="#fb7185" opacity=".35"/>' + frk +
-    '<path d="M48 68Q50 71 52 68" stroke="' + skD + '" stroke-width="1.8" fill="none" stroke-linecap="round"/>' +
-    '<g class="fm1"><path d="M40 77Q50 87 60 77Q50 81 40 77Z" fill="#d6455d"/><path d="M40 77Q50 87 60 77" stroke="#b8334f" stroke-width="2.2" fill="none" stroke-linecap="round"/></g>' +
-    '<g class="fm2" style="display:none"><path d="M39 77Q50 73 61 77Q59 90 50 91Q41 90 39 77Z" fill="#7a1425"/><path d="M42 77.6Q50 75.4 58 77.6L57 81.5Q50 80 43 81.5Z" fill="#fff"/><ellipse cx="50" cy="87" rx="5.5" ry="3" fill="#f0627a"/></g>' +
+  function eye(cx, o, id) {
+    var y = EY, P = eyeP(cx, o);
+    return '<clipPath id="' + u + id + '"><path d="' + P + '"/></clipPath>' +
+      '<ellipse cx="' + cx + '" cy="' + (y + 5.4) + '" rx="5.4" ry="1.5" fill="' + skD + '" opacity=".28" filter="url(#' + u + 'b)"/>' +
+      '<path d="' + P + '" fill="#f6f1ec"/>' +
+      '<g clip-path="url(#' + u + id + ')">' +
+        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="3.5" fill="' + ec + '"/>' +
+        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="3.5" fill="none" stroke="' + ecD + '" stroke-width=".7"/>' +
+        '<circle cx="' + (cx + o * .3) + '" cy="' + (y - .1) + '" r="1.7" fill="#120d0b"/>' +
+        '<circle cx="' + (cx - o * .9) + '" cy="' + (y - 1.4) + '" r=".95" fill="#fff" opacity=".92"/>' +
+        '<ellipse cx="' + cx + '" cy="' + (y - 3.8) + '" rx="7" ry="2.3" fill="#2a1812" opacity=".3"/>' +
+        '<rect x="' + (cx - 8) + '" y="' + (y - 6) + '" width="16" height="0" fill="' + sk + '"><animate attributeName="height" values="0;0;10;0;0" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></rect>' +
+      '</g>' +
+      '<path d="M' + (cx - o * 5.9) + ' ' + (y + .4) + ' Q' + (cx - o * 2.6) + ' ' + (y - 4.3) + ' ' + (cx + o * .6) + ' ' + (y - 4.1) + ' Q' + (cx + o * 4.8) + ' ' + (y - 3.8) + ' ' + (cx + o * 6.4) + ' ' + (y - .9) + '" stroke="#2a1812" stroke-width="1.25" fill="none" stroke-linecap="round"/>' +
+      '<path d="M' + (cx + o * 6.2) + ' ' + (y - .8) + ' L' + (cx + o * 7.7) + ' ' + (y - 2) + '" stroke="#2a1812" stroke-width="1" stroke-linecap="round"/>' +
+      '<path d="M' + (cx - o * 4.8) + ' ' + (y + 2.3) + ' Q' + cx + ' ' + (y + 3.7) + ' ' + (cx + o * 4.6) + ' ' + (y + 1.6) + '" stroke="' + skDD + '" stroke-width=".55" fill="none" opacity=".7"/>' +
+      '<path d="M' + (cx - o * 5) + ' ' + (y - 4.4) + ' Q' + (cx - o * .5) + ' ' + (y - 6.6) + ' ' + (cx + o * 5.6) + ' ' + (y - 3.8) + '" stroke="' + skDD + '" stroke-width=".7" fill="none" opacity=".5" stroke-linecap="round"/>';
+  }
+  var brow = '<path d="M46 42.8 Q40 38.9 29.6 41.6 L30.3 43.6 Q38.6 41.2 46 45Z" fill="' + hcD + '"/>';
+  var back = '', front = '', lock = '', beard = '', strands = '';
+  function sp(d) { return '<path d="' + d + '" stroke="' + hcL + '" stroke-width=".7" fill="none" stroke-linecap="round" opacity=".55"/>'; }
+  var HG = 'url(#' + u + 'h)';
+  if (st === 0) {
+    front = '<path d="M23.2 50 C20.5 24 33 6 52 6.5 C70 7 80 22 76.8 50 C75.8 40 73 32.5 68 28.5 C60 33 47 31 38 25 C30 30 26 38 23.2 50Z" fill="' + HG + '"/><path d="M41 9 Q43.5 17 40 24" stroke="' + hcD + '" stroke-width=".8" fill="none" opacity=".5"/>' + sp('M32 18 Q44 9 60 11') + sp('M28 29 Q40 16 62 17') + sp('M65 14 Q72 20 73 34');
+  } else if (st === 1) {
+    back = '<path d="M19.5 58 C15.5 22 31 5 50 5 C69 5 84.5 22 80.5 58 C80.5 76 84 90 90 100 L10 100 C16 90 19.5 76 19.5 58Z" fill="' + HG + '"/>';
+    front = '<path d="M23.6 56 C20.5 24 33 7 50 7 C67 7 79.5 24 76.4 56 C75.5 42 68.5 30 51.2 22.5 L48.8 22.5 C31.5 30 24.5 42 23.6 56Z" fill="' + HG + '"/>' + sp('M50 8 Q36 12 28 30') + sp('M50 8 Q64 12 72 30');
+    lock = '<path d="M22.8 40 C20.5 62 22.5 82 17 98 L30 98 C27 82 27.5 62 27.5 46Z" fill="' + HG + '"/><path d="M77.2 40 C79.5 62 77.5 82 83 98 L70 98 C73 82 72.5 62 72.5 46Z" fill="' + HG + '"/>' + sp('M21.5 66 Q22 84 18 96') + sp('M78.5 66 Q78 84 82 96');
+  } else if (st === 2) {
+    back = '<path d="M19.5 58 C15 22 31 5 50 5 C69 5 85 22 80.5 58 C81.5 68 80 78 76 84 L24 84 C20 78 18.5 68 19.5 58Z" fill="' + HG + '"/>';
+    front = '<path d="M23.5 54 C21 24 36 8 54 9.5 C70 11 79 26 76.5 54 C74.5 40 69 32 62 29.5 C52 36 38 36 29 46 C26 48 24.5 51 23.5 54Z" fill="' + HG + '"/>' + sp('M36 14 Q50 8 66 14') + sp('M30 35 Q42 23 58 25');
+  } else {
+    front = '<path d="M23.4 48 C21.5 24 33 8 50 8 C67 8 78.5 24 76.6 48 C75 38 71 29 64 26 C56 28 44 28 36 26 C29 29 25 38 23.4 48Z" fill="' + HG + '"/>' + sp('M32 15 Q50 9 68 15');
+    beard = '<path d="M25.2 58 C26.5 74 34 87 50 88 C66 87 73.5 74 74.8 58 C72.5 68 66 73 61 73 Q50 70.6 39 73 C34 73 27.5 68 25.2 58Z" fill="' + hc + '" opacity=".5"/>';
+  }
+  var frk = fr ? '<g fill="#b9805c" opacity=".38"><circle cx="41" cy="61" r=".7"/><circle cx="44.5" cy="62.5" r=".7"/><circle cx="38" cy="63" r=".7"/><circle cx="59" cy="61" r=".7"/><circle cx="55.5" cy="62.5" r=".7"/><circle cx="62" cy="63" r=".7"/><circle cx="47.5" cy="58.5" r=".6"/><circle cx="52.5" cy="58.5" r=".6"/></g>' : '';
+  return '<svg viewBox="6 3 88 88" width="100%" height="100%" style="display:block">' +
+    '<defs>' +
+      '<linearGradient id="' + u + 'g" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#efe9f7"/><stop offset="1" stop-color="#c9bcdf"/></linearGradient>' +
+      '<radialGradient id="' + u + 'f" cx=".5" cy=".4" r=".68"><stop offset="0" stop-color="' + dtShade(sk, 0.14) + '"/><stop offset=".72" stop-color="' + sk + '"/><stop offset="1" stop-color="' + skD + '"/></radialGradient>' +
+      '<linearGradient id="' + u + 'n" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + skDD + '"/><stop offset=".35" stop-color="' + skD + '"/><stop offset="1" stop-color="' + sk + '"/></linearGradient>' +
+      '<linearGradient id="' + u + 'h" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="' + dtShade(hc, 0.1) + '"/><stop offset="1" stop-color="' + hcD + '"/></linearGradient>' +
+      '<filter id="' + u + 'b" x="-30%" y="-60%" width="160%" height="220%"><feGaussianBlur stdDeviation="1.6"/></filter>' +
+    '</defs>' +
+    '<rect width="100" height="100" fill="url(#' + u + 'g)"/>' + back +
+    '<path d="M40.5 72 L40.5 93 L59.5 93 L59.5 72Z" fill="url(#' + u + 'n)"/>' +
+    '<path d="M5 100 Q9 92 34 90 L66 90 Q91 92 95 100Z" fill="' + shirt + '"/><path d="M41 90 L50 98.5 L59 90Z" fill="' + skD + '"/>' +
+    '<ellipse cx="50" cy="88.5" rx="12" ry="3.6" fill="' + skDD + '" opacity=".4" filter="url(#' + u + 'b)"/>' +
+    '<ellipse cx="23.4" cy="54" rx="3.8" ry="6.5" fill="' + skD + '"/><ellipse cx="23.9" cy="54" rx="1.8" ry="3.7" fill="' + skDD + '" opacity=".45"/>' +
+    '<ellipse cx="76.6" cy="54" rx="3.8" ry="6.5" fill="' + skD + '"/><ellipse cx="76.1" cy="54" rx="1.8" ry="3.7" fill="' + skDD + '" opacity=".45"/>' +
+    '<path d="M50 13 C70 13 77.5 28 76.5 46 C76 62 72.5 75 63.5 82.5 C58.5 87 41.5 87 36.5 82.5 C27.5 75 24 62 23.5 46 C22.5 28 30 13 50 13Z" fill="url(#' + u + 'f)"/>' +
+    '<g filter="url(#' + u + 'b)"><ellipse cx="50" cy="29" rx="13" ry="6" fill="' + skL + '" opacity=".4"/><ellipse cx="31" cy="66" rx="6" ry="4" fill="#e8808a" opacity=".2"/><ellipse cx="69" cy="66" rx="6" ry="4" fill="#e8808a" opacity=".2"/><ellipse cx="50" cy="84" rx="8" ry="2.4" fill="' + skD + '" opacity=".35"/></g>' +
+    beard +
+    brow + '<g transform="translate(100 0) scale(-1 1)">' + brow + '</g>' +
+    eye(38.5, -1, 'e1') + eye(61.5, 1, 'e2') +
+    '<path d="M46.2 52 Q45.2 60 43.6 65.6" stroke="' + skDD + '" stroke-width=".9" fill="none" opacity=".16" stroke-linecap="round"/><path d="M53.8 52 Q54.8 60 56.4 65.6" stroke="' + skDD + '" stroke-width=".9" fill="none" opacity=".16" stroke-linecap="round"/>' +
+    '<ellipse cx="50" cy="64.6" rx="2.3" ry="3" fill="' + skL + '" opacity=".5"/>' +
+    '<ellipse cx="50" cy="72" rx="4.6" ry="1.2" fill="' + skDD + '" opacity=".2"/>' +
+    '<path d="M43.2 66.4 Q43 69.6 46.6 69.8 Q50 71 53.4 69.8 Q57 69.6 56.8 66.4" stroke="' + skDD + '" stroke-width="1" fill="none" opacity=".6" stroke-linecap="round"/>' +
+    '<ellipse cx="47.3" cy="69.4" rx="1.5" ry=".8" fill="#6b3d2e" opacity=".6"/><ellipse cx="52.7" cy="69.4" rx="1.5" ry=".8" fill="#6b3d2e" opacity=".6"/>' + frk +
+    '<g class="fm1"><path d="M41.6 76 Q50 78.2 58.4 76" stroke="#7e2f3b" stroke-width=".9" fill="none"/><path d="M41.8 76 Q45.6 73.2 50 74.4 Q54.4 73.2 58.2 76 Q50 77.2 41.8 76Z" fill="' + lipD + '"/><path d="M43.2 76.6 Q50 82.2 56.8 76.6 Q50 78 43.2 76.6Z" fill="' + lip + '"/><ellipse cx="50" cy="79" rx="2.6" ry=".7" fill="#fff" opacity=".3"/><path d="M40.6 74.9 Q41 76.1 41.8 76.4M59.4 74.9 Q59 76.1 58.2 76.4" stroke="' + skDD + '" stroke-width=".6" fill="none" opacity=".6" stroke-linecap="round"/></g>' +
+    '<g class="fm2" style="display:none"><path d="M41 75.6 Q50 73.2 59 75.6 Q58 82.6 50 83.2 Q42 82.6 41 75.6Z" fill="#5e1420"/><path d="M43 75.8 Q50 74.4 57 75.8 L56.2 79 Q50 77.8 43.8 79Z" fill="#fff"/><ellipse cx="50" cy="80.6" rx="4.4" ry="1.9" fill="#d4687a"/><path d="M41 75.6 Q45.5 73 50 74.2 Q54.5 73 59 75.6" stroke="' + lipD + '" stroke-width="1.3" fill="none" stroke-linecap="round"/><path d="M41.6 76.6 Q50 85.4 58.4 76.6" stroke="' + lip + '" stroke-width="2" fill="none" stroke-linecap="round"/></g>' +
+    front + lock +
     '</svg>';
 }
 function dtFaceMouth(el, open) {                // الفم يُفتح عند الأكل والشرب
