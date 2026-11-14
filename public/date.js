@@ -148,8 +148,9 @@ function dateOpen(id) {
    الخادم: src/scene.js (DateScene). الإحداثيات نسبية 0..1 على مسرح 4:3، والمسافة بعرض المسرح (y × 0.75).
    السحب أو النقر للمشي، والقرب يفتح العناق ومسك اليد، والأشياء: وردة تُسلَّم، كرة تُدفع، شمعة تُضيء. */
 var DT_LIM = { x0: 0.05, x1: 0.95, y0: 0.16, y1: 0.95 };   // نفس حدود الخادم
-var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22, chair: 0.16, feed: 0.15 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
+var DT_REACH = { touch: 0.14, give: 0.20, candle: 0.20, table: 0.26, pour: 0.26, toast: 0.22, chair: 0.16, feed: 0.15, side: 0.20 };   // الأخيرة الثلاث لمشهد العشاء (نفس قيم الخادم)
 var DT_TBL = { x: 0.5, y: 0.46 };
+var DT_SIDE = { x: 0.84, y: 0.80 };            // الطاولة الصغيرة في الزاوية الأمامية اليمنى (نفس SIDE في الخادم)
 var DT_OFFER_MS = 20000;
 
 function dtDist(a, b) { return Math.hypot(a.x - b.x, (a.y - b.y) * 0.75); }
@@ -163,20 +164,41 @@ var DT_SVG = {
 
 function dtImgUrl(w) { return w && w.id && w.iv ? '/api/img?u=' + w.id + '&k=img&v=' + w.iv : ''; }
 
-function dtChar(letter, grad, glow, bubId, url) {
+
+/* ---------- وجوه مرسومة بدل صور الملف الشخصي: البشرة والشعر والتسريحة من معرّف الشخص ---------- */
+var DT_SKIN = ['#f6d3b8', '#eebd9a', '#d9a07a', '#b97a56', '#8d5a3b'];
+var DT_HAIR = ['#2b1a16', '#4a2c1a', '#7a4a22', '#1f2937', '#a0522d'];
+function dtFaceSvg(seed) {
+  var h = (Math.imul((+seed || 7) + 13, 2654435761) >>> 0), sk = DT_SKIN[h % 5], hc = DT_HAIR[(h >>> 4) % 5], st = (h >>> 8) % 3, bd = ((h >>> 12) % 4) * 0.7;
+  var back = st === 1 ? '<path d="M6 100V46Q6 4 50 4Q94 4 94 46V100Z" fill="' + hc + '"/>' : '';
+  var cap = '<path d="M-2 50Q-4 6 50 4Q104 6 102 50Q86 26 50 29Q14 26 -2 50Z" fill="' + hc + '"/>';
+  var top = st === 2 ? '<circle cx="50" cy="8" r="11" fill="' + hc + '"/>' : st === 0 ? '<path d="M18 36Q30 20 56 26Q40 30 30 44Z" fill="' + hc + '"/>' : '';
+  return '<svg viewBox="0 0 100 100" width="100%" height="100%" style="display:block">' +
+    '<rect width="100" height="100" fill="' + sk + '"/>' + back +
+    '<ellipse cx="50" cy="58" rx="36" ry="38" fill="' + sk + '"/>' + cap + top +
+    '<path d="M27 44Q35 39 43 43M57 43Q65 39 73 44" stroke="' + hc + '" stroke-width="3" fill="none" stroke-linecap="round"/>' +
+    '<ellipse cx="35" cy="55" rx="5" ry="6" fill="#2b1a16"><animate attributeName="ry" values="6;6;0.6;6;6" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
+    '<ellipse cx="65" cy="55" rx="5" ry="6" fill="#2b1a16"><animate attributeName="ry" values="6;6;0.6;6;6" keyTimes="0;0.92;0.96;0.99;1" dur="4.5s" begin="' + bd + 's" repeatCount="indefinite"/></ellipse>' +
+    '<circle cx="36.6" cy="52.6" r="1.8" fill="#fff"/><circle cx="66.6" cy="52.6" r="1.8" fill="#fff"/>' +
+    '<ellipse cx="25" cy="69" rx="7" ry="4.5" fill="#f43f5e" opacity=".28"/><ellipse cx="75" cy="69" rx="7" ry="4.5" fill="#f43f5e" opacity=".28"/>' +
+    '<path d="M48 62Q50 66 52 62" stroke="#00000033" stroke-width="2" fill="none" stroke-linecap="round"/>' +
+    '<path class="fm1" d="M37 73Q50 85 63 73" stroke="#8b2c3a" stroke-width="3.2" fill="none" stroke-linecap="round"/>' +
+    '<g class="fm2" style="display:none"><ellipse cx="50" cy="78" rx="9" ry="7" fill="#7f1d1d"/><ellipse cx="50" cy="82" rx="5" ry="3" fill="#f87171"/></g>' +
+    '</svg>';
+}
+function dtFaceMouth(el, open) {                // الفم يُفتح عند الأكل والشرب
+  var f = el._fc; if (!f || f.o === open) return;
+  f.o = open; f.a.style.display = open ? 'none' : ''; f.b.style.display = open ? '' : 'none';
+}
+
+function dtChar(letter, grad, glow, bubId, url, seed) {
   var c = dtNode('div', 'position:absolute;left:0;top:0;width:calc(var(--s)*.64);height:calc(var(--s)*.64);margin:calc(var(--s)*-1.94) 0 0 calc(var(--s)*-.32);pointer-events:none;will-change:transform;transition:opacity .4s');
   var bub = dtNode('div', 'position:absolute;bottom:calc(100% + 6px);left:50%;transform:translateX(-50%);width:max-content;max-width:calc(var(--s)*2.6);min-height:30px;padding:7px 11px;border-radius:16px;background:#ffffffee;color:#1d2330;opacity:0;transition:opacity .5s;word-break:break-word;text-align:center;font-size:14px;line-height:1.4');
   bub.id = bubId;
-  var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.26);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, letter);
+  var av = dtNode('div', 'position:relative;width:100%;height:100%;border-radius:50%;overflow:hidden;display:flex;align-items:center;justify-content:center;font-size:calc(var(--s)*.26);font-weight:700;border:3px solid #fff9;box-shadow:0 0 22px ' + glow + ',0 6px 12px #0006;background:' + grad, '');
   av.className = 'dtav';
-  if (url) {
-    var im = document.createElement('img');
-    im.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;object-fit:cover';
-    im.alt = ''; im.draggable = false;
-    im.onerror = function () { im.remove(); };
-    im.src = url;
-    av.appendChild(im);
-  }
+  av.innerHTML = dtFaceSvg(seed);                 // وجه مرسوم (رسم ثابت من الكود فقط)
+  c._fc = { a: av.querySelector('.fm1'), b: av.querySelector('.fm2'), o: 0 };
   c.appendChild(bub); c.appendChild(av);
   return c;
 }
@@ -430,6 +452,8 @@ function dtBodyDraw(ts) {
   if (dtDinner()) {
     var kd = Math.min(0.1, (ts - (DT.lbt || ts)) / 1000); DT.lbt = ts;
     dtDinnerTable(g, W, H, s, kd);
+    dtSideTable(g, W, H, s);
+    if (DT.sp) dtFoodPlate(g, W, H, s, 'S', { fp: [DT.sp] }, kd);
     ['m', 'p'].forEach(function (r) {
       var SG = DT.gl[dtGlId(r)], sc = DT.ch[r], tg = SG && SG.s ? 1 : 0;
       sc.sit = DT.still ? tg : (sc.sit || 0) + (tg - (sc.sit || 0)) * Math.min(1, kd * 6);
@@ -567,6 +591,15 @@ function dtChair(g, x, y, s, dir) {           // كرسي جانبي: (x,y) عن
   g.fillStyle = '#7a3b1d'; R(bx - dir * s * 0.02, fr + dir * s * 0.03, y - s * 0.30, y - s * 0.22);                    // المقعد
   g.fillStyle = '#b4233f'; R(bx + dir * s * 0.06, fr, y - s * 0.37, y - s * 0.30);                                     // الوسادة
 }
+function dtSideTable(g, W, H, s) {            // طاولة صغيرة مستديرة بمفرش: يقف الطرفان بجانبها فيتقاربان دون كراسي
+  var x = DT_SIDE.x * W, y = H * DT_SIDE.y, ty = y - s * 0.72, r = s * 0.36;
+  g.fillStyle = 'rgba(0,0,0,.25)'; g.beginPath(); g.ellipse(x, y + 2, r * 0.95, r * 0.24, 0, 0, 7); g.fill();
+  g.fillStyle = '#3b1a0b'; g.beginPath(); g.ellipse(x, y - s * 0.02, r * 0.5, r * 0.13, 0, 0, 7); g.fill();
+  g.fillRect(x - s * 0.03, ty, s * 0.06, y - s * 0.02 - ty);
+  g.fillStyle = '#7f1d1d'; g.beginPath(); g.ellipse(x, ty + s * 0.045, r, r * 0.3, 0, 0, 7); g.fill();     // حافة المفرش
+  g.fillStyle = '#b4233f'; g.beginPath(); g.ellipse(x, ty, r, r * 0.3, 0, 0, 7); g.fill();                // سطح الطاولة
+  g.fillStyle = '#f3dfe4'; g.beginPath(); g.ellipse(x, ty, r * 0.5, r * 0.15, 0, 0, 7); g.fill();         // الصحن
+}
 function dtBottle(g, x, y, h, a) {            // زجاجة تدور حول قاعدتها عند الصبّ
   var w = h * 0.26;
   g.save(); g.translate(x, y); g.rotate(a);
@@ -669,8 +702,8 @@ function dtGlEv(j) {                          // حدث من الخادم: رش�
   if (j.ev === 'sip') DT.gfx[j.by] = { k: 'sip', t0: now, until: now + 2000 };
   else if (j.ev === 'toast') { DT.gfx[j.by] = DT.gfx[j.to] = { k: 'toast', t0: now, until: now + 2200 }; dtFlash('🥂 نخب!'); }
   else if (j.ev === 'serve') { DT.sv = DT.sv || {}; DT.sv[j.to] = now; if (DT_FOOD[j.fd]) dtFlash(DT_FOOD[j.fd].e + ' ' + DT_FOOD[j.fd].n + (j.z && DT_SZ[j.z] ? ' (' + DT_SZ[j.z].n + ')' : '')); }
-  else if (j.ev === 'bite') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'bite', d: j.d, t0: now, until: now + DT_EAT_MS }; }
-  else if (j.ev === 'feed') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'feed', d: j.d, to: j.to, t0: now, until: now + DT_FEED_MS }; dtFlash('🤲 لقمة بحب'); }
+  else if (j.ev === 'bite') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'bite', d: j.d, t0: now, until: now + DT_EAT_MS, src: j.src }; if (j.src === 's') DT.ef.S = DT.ef[j.by]; }
+  else if (j.ev === 'feed') { DT.ef = DT.ef || {}; DT.ef[j.by] = { k: 'feed', d: j.d, to: j.to, t0: now, until: now + DT_FEED_MS, src: j.src }; if (j.src === 's') DT.ef.S = DT.ef[j.by]; dtFlash('🤲 لقمة بحب'); }
   else if (j.ev === 'pour') { DT.pour = { to: j.to, t0: now, until: now + 1300 }; if (DT_DR[j.dk]) dtFlash(DT_DR[j.dk].e + ' ' + DT_DR[j.dk].n); }
 }
 
@@ -706,6 +739,7 @@ function dtBites(id, z) { return Math.max(2, Math.round((DT_BITES[id] || 3) * (D
 function dtSm(k) { k = k < 0 ? 0 : k > 1 ? 1 : k; return k * k * (3 - 2 * k); }
 function dtBump(u, a, b, c, d) { return u <= a || u >= d ? 0 : u < b ? dtSm((u - a) / (b - a)) : u <= c ? 1 : dtSm(1 - (u - c) / (d - c)); }
 function dtPlateXY(id, W, H) {                 // مكان الطبق: فوق الصحن الأبيض المرسوم في الخلفية
+  if (id === 'S') return { x: DT_SIDE.x * W, y: H * DT_SIDE.y - DT.s * 0.75 };   // الطبق المشترك على الطاولة الصغيرة
   return { x: (dtChairIdx(id) === 0 ? 0.43 : 0.57) * W, y: H * 0.395 };
 }
 function dtMouth(id, W, H, s) {                // فم صاحب المعرّف: على الوجه (أسفل الصورة) ويتبع ميل الرأس
@@ -744,7 +778,7 @@ function dtEatLink(role, c, o, W, H, s, pose, G) {
   if (!e || now >= e.until) return null;
   var u = (now - e.t0) / (e.until - e.t0), sit = c.sit || 0;
   var sd = sit > 0.5 ? (c.sdir || 1) : ((o.x == null ? 0.5 : o.x) >= c.x ? 1 : -1);
-  var pl = dtPlateXY(id, W, H), dp = pl.x >= c.x * W ? 1 : -1;
+  var pl = dtPlateXY(e.src === 's' ? 'S' : id, W, H), dp = pl.x >= c.x * W ? 1 : -1;
   var gr = { x: pl.x - dp * W * 0.02, y: pl.y - s * 0.02 };                          // حافة الطبق الأقرب
   var mt = dtMouth(e.k === 'feed' ? +e.to : id, W, H, s);
   if (!mt) return null;
@@ -843,7 +877,7 @@ function dtBkCss() {
   st.textContent = '@keyframes dtbksh{0%,100%{opacity:0}50%{opacity:.45}}@keyframes dtbkin{from{opacity:0;transform:translateY(14px) scale(.97)}to{opacity:1;transform:none}}';
   document.head.appendChild(st);
 }
-function dtMenu() {
+function dtMenu(side) {                        // side = 's': طلب طبق مشترك للطاولة الصغيرة
   var old = DT.root.querySelector('#dtbook');
   if (old) { old.remove(); return; }
   dtBkCss();
@@ -1020,7 +1054,7 @@ function dtMenu() {
   var chM = chip('لي', 1, function () { tgt = 'm'; sty(); }), chP = chip('لشريكي', 0, function () { tgt = 'p'; sty(); });
   var bGo = chip('🛎️ اطلب', 1, order, 'padding:7px 18px;font-weight:700');
   var bX = chip('✕', 0, close);
-  bar.appendChild(summEl); bar.appendChild(chM); bar.appendChild(chP); bar.appendChild(bGo); bar.appendChild(bX);
+  bar.appendChild(summEl); if (!side) { bar.appendChild(chM); bar.appendChild(chP); } bar.appendChild(bGo); bar.appendChild(bX);
   ov.appendChild(bar);
 
   function sty() { chM.style.background = tgt === 'm' ? '#e11d48' : 'rgba(255,255,255,.1)'; chP.style.background = tgt === 'p' ? '#e11d48' : 'rgba(255,255,255,.1)'; }
@@ -1034,6 +1068,13 @@ function dtMenu() {
   function order() {
     if (!sel.foods.length && !sel.drink) { dtFlash('اختر شيئاً من القائمة أولاً'); return; }
     if (!DT.wsOk) { dtFlash('غير متصل بالمسرح'); return; }
+    if (side) {
+      if (dtDist(DT.ch.m, DT_SIDE) > DT_REACH.side) { dtFlash('اقترب من الطاولة الصغيرة'); return; }
+      if (!sel.foods.length) { dtFlash('اختر طبقاً للطاولة الصغيرة'); return; }
+      if (sel.drink || sel.foods.length > 1) dtFlash('الطاولة الصغيرة تتسع لطبق مشترك واحد فقط');
+      dtWsSend({ t: 'sserve', d: sel.foods[0].id, z: sel.foods[0].z });
+      close(); return;
+    }
     if (dtDist(DT.ch.m, DT_TBL) > DT_REACH.table) { dtFlash('اقترب من الطاولة لتطلب'); return; }
     if (tgt === 'p' && !DT.ch.p.here) { dtFlash('شريكك غير موجود في المسرح الآن'); return; }
     var q = [];
@@ -1218,8 +1259,8 @@ function dtOnMsg(j) {
     DT.sig = '';
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
-    DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {};
-    if (dtDinner()) dtFlash('📖 المس قائمة العشاء على الطاولة لتطلب مشروباً وطعاماً');
+    DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {}; DT.sp = j.sp || null;
+    if (dtDinner()) dtFlash('📖 المس قائمة العشاء لتطلب مشروباً وطعاماً، وللإطعام واقفين اقصدا الطاولة الصغيرة على اليمين');
   } else if (j.t === 'mode') {
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     dtFlash(DT.simple ? '🫧 النمط البسيط: فقاعتان للطرفين' : '🎭 عاد المشهد المتحرك');
@@ -1245,6 +1286,8 @@ function dtOnMsg(j) {
     DT.pose = { k: j.k, until: Date.now() + 7000 };
   } else if (j.t === 'gl') {
     DT.gl = j.gl || {}; DT.sig = '';
+  } else if (j.t === 'sp') {
+    DT.sp = j.sp || null; DT.sig = '';
   } else if (j.t === 'gs') {
     dtGlEv(j);
   } else if (j.t === 'e') {
@@ -1289,6 +1332,15 @@ function dtActions() {
       if (p.here && pg) { var fclose = dtDist(m, p) <= DT_REACH.feed; a.push([fclose || mg.h ? '🤲 أطعم شريكي' : '🤲 أطعم شريكي (اقترب منه)', 'ffeed', !mg.h && DT.near.fx && fclose ? 1 : 0, 1]); }
     }
     if (nt && mfp.length) a.push(['🧹 ارفع الأطباق', 'fclear', 1, 0]);
+    if (dtDist(m, DT_SIDE) <= DT_REACH.side) {              // الطاولة الصغيرة: طبق مشترك يُؤكل ويُطعَم منه واقفين
+      var sps = DT.sp, spOk = sps && sps.n > 0;
+      if (!spOk) a.push(['🍽️ اطلب طبقاً للطاولة الصغيرة', 'smenu', 1, 1]);
+      else {
+        a.push([mg.h ? '🍴 كُل (ضع الكأس أولاً)' : '🍴 كُل من الطبق المشترك', 'sbite', mg.h ? 0 : 1, 0]);
+        if (p.here && pg) { var sclose = dtDist(m, p) <= DT_REACH.feed; a.push([sclose || mg.h ? '🤲 أطعم شريكي' : '🤲 أطعم شريكي (اقترب منه)', 'sfeed', !mg.h && DT.near.fx && sclose ? 1 : 0, 1]); }
+      }
+      if (sps) a.push(['🧹 ارفع الطبق المشترك', 'sclear', 1, 0]);
+    }
     if (mg.s) a.push(['🧍 قم من الكرسي', 'cstand', 1, 0]);
     else {
       var chp = { x: dtChX(me, mg.o), y: 0.5 };
@@ -1306,6 +1358,7 @@ function dtActions() {
 
 function dtDoAct(k) {
   if (k === 'menu') { dtMenu(); return; }
+  if (k === 'smenu') { dtMenu('s'); return; }
   if (k === 'walk1') { dtWsSend({ t: 'walk', on: 1 }); return; }
   if (k === 'walk0') { dtWsSend({ t: 'walk', on: 0 }); return; }
   if (k === 'hug' || k === 'hands') { dtWsSend({ t: k }); dtGest(k); return; }
@@ -1406,6 +1459,7 @@ function dtLoop(ts) {
     var by2 = z[1].moving && !DT.still && !(z[1].sit > 0.02) ? -Math.abs(Math.sin(ts / 110)) * DT.sh * 0.018 : 0, sd2 = (z[1].sit || 0) * DT.s * 0.36;   // قفزة المشي + نزول الرأس عند الجلوس
     var sx2 = (z[1].sit || 0) * (z[1].sdir || 0) * DT.s * 0.10, rt = (z[1].sit || 0) * (z[1].sdir || 0) * 5;   // يميل الرأس نحو الطاولة عند الجلوس
     var hx3 = sx2 + (z[1].hlx || 0), hy3 = by2 + sd2 + (z[1].hly || 0), hr3 = rt + (z[1].hrot || 0);   // + ميل الرأس عند الأكل والشرب
+    dtFaceMouth(z[0], (z[1].lean || 0) > 0.5);
     av.style.transform = hx3 || hy3 || hr3 ? 'translate(' + hx3.toFixed(1) + 'px,' + hy3.toFixed(1) + 'px) rotate(' + hr3.toFixed(1) + 'deg)' : '';
   });
   // الأشياء
@@ -1533,8 +1587,8 @@ function dtBuild(id, j) {
   DT.els.candle.appendChild(fl); DT.els.flame = fl;
   DT.els.rose = dtObjEl(DT_SVG.rose, 0.55, 'transform:translate(-50%,-70%)');
   DT.els.ball = dtObjEl(DT_SVG.ball, 0.5, 'margin:calc(var(--s)*-.25) 0 0 calc(var(--s)*-.25)');
-  DT.els.m = dtChar(mn.charAt(0), 'linear-gradient(135deg,#2dd4bf,#0f766e)', '#2dd4bf99', 'dbm', dtImgUrl(mine));
-  DT.els.p = dtChar(pn.charAt(0), 'linear-gradient(135deg,#fb7185,#be123c)', '#fb718599', 'dbh', dtImgUrl(part));
+  DT.els.m = dtChar(mn.charAt(0), 'linear-gradient(135deg,#2dd4bf,#0f766e)', '#2dd4bf99', 'dbm', '', mine && mine.id);
+  DT.els.p = dtChar(pn.charAt(0), 'linear-gradient(135deg,#fb7185,#be123c)', '#fb718599', 'dbh', '', part && part.id);
   [DT.els.candle, DT.els.ball, DT.els.rose, DT.els.m, DT.els.p].forEach(function (e) { st.appendChild(e); });
   if (j.ty === 'عشاء رومانسي') {                // ورقة قائمة قائمة على المائدة: المسها لتفتح نافذة المشروبات
     var card = dtNode('div', 'position:absolute;left:45.5%;top:47.5%;width:calc(var(--s)*.55);height:calc(var(--s)*.7);transform:translate(-50%,-50%) rotate(-6deg);z-index:880;cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;border-radius:5px;background:linear-gradient(180deg,#fffaf0,#f3e3c3);border:1px solid #c9a56a;box-shadow:0 3px 8px #0007,0 0 14px #fde68a88;color:#5b3a12;font-size:calc(var(--s)*.18);line-height:1;animation:dtcard 2.4s ease-in-out infinite');
