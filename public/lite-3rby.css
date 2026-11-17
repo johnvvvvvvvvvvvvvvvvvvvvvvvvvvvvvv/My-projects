@@ -1,0 +1,130 @@
+/* ============================================================
+   شكل "شات عربي" على طراز 3rby.chat (ثيم Lite)
+   تغيير شكل فقط: لا يمس أي JavaScript أو وظائف.
+   يوضع بعد كل ملفات/ستايلات الموقع الحالية.
+   ============================================================ */
+@import url("https://fonts.googleapis.com/css2?family=Noto+Kufi+Arabic:wght@400;600;700&display=swap");
+
+/* ---------- الألوان (النهاري = Lite، والثيمات الليلية تبقى كما هي) ---------- */
+:root, :root[data-theme="light"]{
+  --bg:#ededed; --sf:#fff; --tx:#333; --mu:#888;
+  --ac:#03add8; --ac2:#fff; --bd:#e6e6e6;
+  --me:#e3f6fb; --m1:#ededed; --m2:#ededed;
+  --hd:#222;            /* لون الشريط العلوي (bhead) */
+  --send:#222;          /* زر الإرسال */
+}
+@media(prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){--hd:#161c25;--send:var(--ac)}
+}
+:root[data-theme]:not([data-theme="light"]){--hd:var(--sf);--send:var(--ac)}
+
+/* ---------- عام ---------- */
+body{font-family:"Noto Kufi Arabic",Cairo,Tahoma,"Segoe UI",Arial,sans-serif;line-height:1.3}
+*{scrollbar-width:thin;scrollbar-color:rgba(136,136,136,.4) transparent}
+::-webkit-scrollbar{width:5px;height:5px;background:none}
+::-webkit-scrollbar-thumb{background:rgba(136,136,136,.5);border-radius:4px}
+button{background:var(--ac);color:var(--ac2);border-radius:5px;font-weight:600;min-height:38px}
+button.g{background:rgba(127,127,127,.14);color:var(--tx)}
+button.g:hover{background:rgba(127,127,127,.24)}
+button.dg,#menu button.dg{background:rgba(220,38,38,.12);color:#dc2626}
+input,select,textarea{background:var(--sf);border:1px solid var(--bd);border-radius:5px}
+:is(button,input,textarea,select,[tabindex]):focus-visible{outline:2px solid var(--ac);outline-offset:1px}
+
+/* ---------- شاشة الدخول ---------- */
+#login{background:var(--bg)}
+.card{border:0;border-radius:20px;box-shadow:0 1px 3px rgba(0,0,0,.2);padding:24px}
+h1{color:var(--ac);font-weight:700}
+
+/* ---------- الشريط العلوي (داكن مثل 3rby) ---------- */
+header{background:var(--hd);color:#fff;border-bottom:0;min-height:50px;padding:5px 8px;gap:4px;flex-wrap:nowrap}
+header button.g{background:transparent;color:#fff;min-width:40px;font-size:18px;padding:0 8px}
+header button.g:hover{background:rgba(255,255,255,.12)}
+header select,header #who,header #rl{color:#fff}
+header b{color:#fff}
+#rl{font-size:13px;font-weight:700;margin-inline:6px;color:#fff}
+#nc,#uc{background:red;color:#fff;border-radius:2px;font-size:12px;font-weight:700}
+
+/* ---------- موضوع الغرفة والتثبيت ---------- */
+#pin{background:#d9f2e6;color:#0d261a;border-bottom:0}
+#rtopic{background:rgba(127,127,127,.14)!important}
+#ty{color:var(--mu)}
+
+/* ---------- الرسائل: صفوف مسطحة بدل الفقاعات ---------- */
+#msgs{gap:0;padding:0 0 8px}
+#msgs .m{width:100%;max-width:100%;background:transparent;border:0;border-radius:0;padding:7px 10px;gap:8px}
+#msgs .m.alt{background:rgba(127,127,127,.09)}
+#msgs .m.me{background:rgba(3,173,216,.10)}
+#msgs .m.sys{width:auto;max-width:94%;margin:5px auto;background:rgba(127,127,127,.14);color:var(--mu);border-radius:5px;padding:5px 10px;font-size:12px}
+#msgs .m.gp{padding-top:1px;padding-bottom:1px}
+#msgs .m>div:not(.av){font-weight:600;font-size:15px;line-height:1.5}
+.av{width:30px;height:30px;font-size:13px}
+.n{font-size:13px;font-weight:700}
+.tm{font-size:10px;color:#999}
+.bd{border-radius:3px;font-size:10px;padding:0 6px}
+.q{background:rgba(127,127,127,.14);border-radius:10px;border-inline-start:3px solid var(--ac)}
+.rx button{background:var(--sf);color:var(--tx);border:1px solid #e5e5e5;border-radius:10px;box-shadow:0 1px 2px rgba(0,0,0,.15);min-height:0}
+.rx button.on{border-color:var(--ac)}
+#dn{border-radius:15px;background:var(--sf);color:var(--tx);border:0;box-shadow:0 1px 3px rgba(0,0,0,.3)}
+
+/* ---------- شريط الكتابة (حقل دائري + زر إرسال دائري) ---------- */
+#bar{background:var(--sf);border-top:1px solid var(--bd);padding:6px;gap:6px;align-items:center}
+#bar textarea{border-radius:100px;padding:9px 16px;background:var(--bg);border:1px solid var(--bd);font-size:16px}
+#bar button.g{background:transparent;color:var(--mu);font-size:20px;min-width:38px;padding:0 4px}
+#send{background:var(--send);color:#fff;border-radius:100px;font-weight:700;padding:0 18px}
+:root[data-theme]:not([data-theme="light"]) #send{color:var(--ac2)}
+
+/* ---------- قائمة المتصلين + القوائم الجانبية ---------- */
+#users,#side{background:var(--sf);border:0;box-shadow:0 1px 3px rgba(0,0,0,.25);padding:0}
+#users>.u,#side>.u{padding:12px 10px}
+#users input,#side input{margin:6px 8px;width:calc(100% - 16px)}
+.u{border-radius:0;border-bottom:1px solid var(--bd);padding:8px 10px}
+.u:hover{background:rgba(127,127,127,.10)}
+.sec2{background:rgba(127,127,127,.12);color:var(--tx);margin:0;padding:8px 10px;font-weight:700}
+.mi{border:0;border-bottom:1px solid var(--bd);border-radius:0;padding:14px 12px;margin:0;font-weight:600}
+.mi:hover{background:rgba(127,127,127,.10)}
+.nw{border:1px solid var(--bd);border-radius:5px;background:transparent;margin:6px 8px}
+.tabs{border-bottom:0;margin:6px 0 0;padding:0 6px;gap:4px}
+.tabs button{border-radius:5px;border-bottom:0;background:transparent;color:var(--tx);font-weight:700}
+.tabs button.on{background:rgba(127,127,127,.18);color:var(--ac)}
+.tbs button{border-radius:5px}
+.pr16{border-bottom:1px solid var(--bd)}
+
+/* ---------- القائمة المنبثقة (float_menu) ---------- */
+#menu{border:0;border-radius:10px;padding:0;overflow:hidden;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+#menu button{border-radius:0;border-bottom:1px solid var(--bd);padding:12px 12px;min-height:44px;font-weight:600}
+#menu button:last-child{border-bottom:0}
+#mp,#wh,#smp{border:0;border-radius:10px;box-shadow:0 1px 4px rgba(0,0,0,.3)}
+
+/* ---------- البروفايل والنوافذ (حواف 20px مثل 3rby) ---------- */
+#pf .c,#dl>.c,#dl .c{border:0;border-radius:20px;box-shadow:0 4px 20px rgba(0,0,0,.35)}
+.cv{height:150px}
+.pi{margin-top:-52px}
+.pi .av{width:100px;height:100px;font-size:38px;border:2px solid #fff}
+.pi b{font-weight:700}
+.row2{border-bottom:1px solid var(--bd);padding:6px 0}
+.lvb{border-radius:5px}
+.pg,.pbar{border-radius:5px}
+#ov{backdrop-filter:blur(3px)}
+
+/* ---------- الخاص (رأس داكن + فقاعات 10px) ---------- */
+#pn{border:0!important;border-radius:12px;box-shadow:0 1px 6px rgba(0,0,0,.35)}
+#pn>div:first-child{background:var(--hd)!important;color:#fff;border-bottom:0!important}
+#pn>div:first-child b,#pn>div:first-child small{color:#fff}
+#pn>div:first-child button.g{background:transparent;color:#fff}
+#pb{background:var(--bg)!important}
+#pb .m{background:var(--m2);color:var(--mu);border:0;border-radius:10px;padding:8px 12px}
+#pb .m.me{background:var(--tx);color:var(--bg)}
+#pb .m.sys{background:rgba(127,127,127,.14);color:var(--mu)}
+#pi{border-radius:100px}
+#ps{border-radius:100px;background:var(--send);color:#fff}
+
+/* ---------- الإشعارات العائمة ---------- */
+#ts,#ts.ux-on{background:rgba(17,18,22,.96);color:#fff;border:1px solid rgba(255,255,255,.11);border-radius:999px;box-shadow:0 14px 38px rgba(0,0,0,.42);font-weight:700;font-size:13px}
+#ann{border-radius:16px}
+.m.fl{animation:fl 1.2s}
+
+@media(min-width:1000px){
+  main{grid-template-columns:1fr 280px}
+  #chat{max-width:none;margin:0}
+  #users{box-shadow:none;border-inline-start:1px solid var(--bd)}
+}
