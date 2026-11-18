@@ -15,6 +15,28 @@ const JPEG_B64 = /^data:image\/jpeg;base64,([A-Za-z0-9+/]+={0,2})$/;
 const MAX_ST = 120000;            // أقصى حجم لإعدادات المستخدم (حرف)
 const SET_GAP = 1000;             // أدنى فاصل بين حفظين للإعدادات (مللي ثانية)
 
+// ---------- صندوق الهدية اليومي (كل الأرقام هنا، عدّلها كما تشاء) ----------
+// مكافأة متغيرة: w وزن الاحتمال (المجموع 100)، والعملات عدد عشوائي بين lo و hi
+const BOX_TIERS = [
+  { id: 'c', w: 72, lo: 10,  hi: 25 },    // عادي
+  { id: 'r', w: 20, lo: 30,  hi: 50 },    // جيد
+  { id: 'e', w: 7,  lo: 70,  hi: 100 },   // نادر
+  { id: 'j', w: 1,  lo: 200, hi: 200 },   // الجائزة الكبرى
+];
+const BOX_STREAK_BONUS = 2;       // عملتان إضافيتان لكل يوم من السلسلة
+const BOX_STREAK_BONUS_MAX = 7;   // سقف أيام السلسلة المحسوبة في الإضافة
+const BOX_ITEM_BASE = 2;          // فرصة ظهور غرض من المتجر (%) في أي فتح
+const BOX_ITEM_PER_DAY = 0.1;     // تزيد 0.1% لكل يوم من السلسلة
+const BOX_ITEM_MAX = 5;           // وسقفها 5%
+const BOX_ITEM_MAX_PRICE = 150;   // لا تُمنح أغراض أغلى من هذا السعر
+const BOX_ITEM_RARITY = ['common', 'rare'];   // أنواع الندرة المسموح بمنحها (لا epic ولا ltd)
+const BOX_MILESTONES = { 7: 50, 14: 100, 30: 200 };   // مكافأة مضمونة عند بلوغ هذه السلسلة
+const BOX_SAVE_GAP = 2;           // الحماية تنقذ السلسلة إن غاب يوماً واحداً فقط (فجوة 2 بين الاستلامين)
+
+// عشوائية من crypto وليست Math.random، والخادم وحده من يقرر
+const rnd = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
+const rint = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
+
 const TYPES = ['name', 'frame', 'theme', 'bg', 'bubble', 'title', 'namefx', 'banner', 'icon'];
 const RARITY = ['common', 'rare', 'epic', 'ltd'];
 const THEME_KEYS = ['royal', 'neon', 'space', 'rose', 'emerald', 'dusk'];   // الثيمات المعرّفة في الواجهة
@@ -77,6 +99,16 @@ const wrap = (fn) => async (req, env, url) => {
 
 const dayKey = (t) => new Date(t + TZ).toISOString().slice(0, 10);
 const dayStart = (t) => Math.floor((t + TZ) / DAY) * DAY - TZ;
+const dayIdx = (t) => Math.floor((t + TZ) / DAY);                       // رقم اليوم (بتوقيت الإمارات)
+const dayIdxOf = (k) => (k ? Math.floor(Date.parse(k + 'T00:00:00Z') / DAY) : -1e9);   // من مفتاح "YYYY-MM-DD"
+const weekKey = (t) => Math.floor((dayIdx(t) + 3) / 7);                 // الأسبوع يبدأ الاثنين (اليوم 0 كان خميساً)
+// هل السلسلة ما زالت حية، وهل الحماية متاحة هذا الأسبوع؟
+function streakInfo(d, now) {
+  const gap = dayIdx(now) - dayIdxOf(d.last);
+  const prot = d.fzw !== weekKey(now);          // لم تُستهلك حماية هذا الأسبوع
+  const alive = d.last && (gap <= 1 || (gap === BOX_SAVE_GAP && prot));
+  return { gap, prot, alive: !!alive };
+}
 const isAdmin = (u) => lvOf(u) >= 6;              // مبرمج أو صاحب الموقع
 
 function parse(s, d) {
@@ -94,7 +126,7 @@ async function member(req, env) {
 }
 
 // ---------- حالة المتجر لكل مستخدم ----------
-const fresh = () => ({ inv: [], eq: {}, wish: [], day: '', last: '', streak: 0, done: {}, gd: 0, tx: [] });
+const fresh = () => ({ inv: [], eq: {}, wish: [], day: '', last: '', streak: 0, best: 0, fzw: '', done: {}, gd: 0, tx: [] });
 
 async function loadState(env, uid) {
   let r = await env.DB.prepare('SELECT coins,ver,data FROM shop_state WHERE user_id=?').bind(uid).first();
@@ -161,8 +193,9 @@ async function view(env, u, opt = {}) {
   const s = await loadState(env, u.id);
   roll(s.d, now);
   const cat = await catalog(env);
+  const si = streakInfo(s.d, now);
   const shop = {
-    coins: s.coins, inv: s.d.inv, eq: s.d.eq, wish: s.d.wish, streak: s.d.streak,
+    coins: s.coins, inv: s.d.inv, eq: s.d.eq, wish: s.d.wish, streak: si.alive ? s.d.streak : 0, best: s.d.best || 0, fz: si.prot ? 1 : 0,
     claimed: s.d.last === dayKey(now) ? 1 : 0, done: s.d.done, tx: s.d.tx.slice(0, 10),
     gleft: Math.max(0, GIFT_COINS_DAY - (s.d.gd || 0)),
     items: cat.items, hid: cat.hid, tasks: TASKS,
@@ -244,16 +277,41 @@ const shopClaim = wrap(async (req, env) => {
   const u = await member(req, env);
   const b = (await readBody(req)) || {};
   const k = String(b.k || '');
+  let gift = null;
   if (k === 'daily') {
-    await mutate(env, u.id, (s, now) => {
+    const cat = await catalog(env);
+    const out = await mutate(env, u.id, (s, now) => {
       const today = dayKey(now);
       if (s.d.last === today) throw new ShopErr('تم الاستلام اليوم');
-      s.d.streak = s.d.last === dayKey(now - DAY) ? s.d.streak + 1 : 1;
+      // السلسلة: يوم متتابع يزيدها، وغياب يوم واحد تنقذه الحماية الأسبوعية، وما عدا ذلك تبدأ من جديد
+      const si = streakInfo(s.d, now);
+      let saved = false;
+      if (si.alive && si.gap <= 1) s.d.streak += 1;
+      else if (si.alive) { s.d.streak += 1; s.d.fzw = weekKey(now); saved = true; }
+      else s.d.streak = 1;
       s.d.last = today;
-      const g = 20 + Math.min(s.d.streak, 7) * 2;
-      addTx(s, now, 'مكافأة يومية +' + g);
-      return { delta: g };
+      s.d.best = Math.max(s.d.best || 0, s.d.streak);
+      // المكافأة المتغيرة
+      let x = rnd() * 100, tier = BOX_TIERS[0];
+      for (const t of BOX_TIERS) { if (x < t.w) { tier = t; break; } x -= t.w; }
+      let coins = rint(tier.lo, tier.hi) + Math.min(s.d.streak, BOX_STREAK_BONUS_MAX) * BOX_STREAK_BONUS;
+      const ms = BOX_MILESTONES[s.d.streak] || 0;
+      coins += ms;
+      // غرض نادر من المتجر (يُتخطى إن كان يملك كل المتاح فلا تضيع المكافأة)
+      let item = null;
+      if (rnd() * 100 < Math.min(BOX_ITEM_MAX, BOX_ITEM_BASE + s.d.streak * BOX_ITEM_PER_DAY)) {
+        const pool = cat.items.filter((i) => !cat.hid.includes(i.id) && !s.d.inv.includes(i.id)
+          && BOX_ITEM_RARITY.includes(i.r) && i.p <= BOX_ITEM_MAX_PRICE);
+        if (pool.length) {
+          const it = pool[Math.floor(rnd() * pool.length)];
+          s.d.inv.push(it.id);
+          item = { id: it.id, n: it.n, r: it.r };
+        }
+      }
+      addTx(s, now, 'صندوق يومي +' + coins + (item ? ' + ' + item.n : '') + (saved ? ' (حماية السلسلة)' : ''));
+      return { delta: coins, gift: { c: coins, tier: tier.id, item, ms, saved, streak: s.d.streak } };
     });
+    gift = out.gift;
   } else {
     const t = TASKS.find((x) => x.id === k);
     if (!t) throw new ShopErr('مهمة غير معروفة', 404);
@@ -266,7 +324,7 @@ const shopClaim = wrap(async (req, env) => {
       return { delta: t.c };
     });
   }
-  return json({ ok: true, shop: await view(env, u, { counts: true }) });
+  return json({ ok: true, gift, shop: await view(env, u, { counts: true }) });
 });
 
 const shopGift = wrap(async (req, env) => {
