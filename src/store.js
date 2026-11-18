@@ -33,6 +33,18 @@ const BOX_ITEM_RARITY = ['common', 'rare'];   // أنواع الندرة الم�
 const BOX_MILESTONES = { 7: 50, 14: 100, 30: 200 };   // مكافأة مضمونة عند بلوغ هذه السلسلة
 const BOX_SAVE_GAP = 2;           // الحماية تنقذ السلسلة إن غاب يوماً واحداً فقط (فجوة 2 بين الاستلامين)
 
+// ---------- الرتب المعروضة للبيع (كل الأسعار هنا، عدّلها كما تشاء) ----------
+// rank: رتبة العضو التي تُمنح (90 أوبريتور، 91 مودريتور، 98 سوبر أدمن كما في RK في الواجهة)
+// role: للمبرمج يتغير الدور نفسه. لا تُباع رتبة صاحب الموقع أبداً.
+// الترتيب من الأدنى إلى الأعلى، ولا يشتري العضو رتبة أدنى مما يملكه أو مساوية لها.
+const RANKS = [
+  { id: 'op',  n: 'أوبريتور',  ic: '🛡️', p: 10000,  rank: 90, d: 'مشرف رتبي: تحذير وكتم وحذف الرسائل ومراجعة البلاغات.' },
+  { id: 'mod', n: 'مودريتور',  ic: '🛡️', p: 25000,  rank: 91, d: 'مشرف عام: صلاحيات أوسع، منها الطرد والحظر المؤقت وسحب الصلاحيات.' },
+  { id: 'adm', n: 'أدمن',      ic: '⚔️', p: 50000,  rank: 94, d: 'مشرف عام بقوة أعلى: يعلو على أصحاب الرتب الأدنى منه.' },
+  { id: 'sa',  n: 'سوبر أدمن', ic: '🛡✓', p: 100000, rank: 98, d: 'يضيف الحظر وتعيين مشرفي الغرف ورفع البنرات للمتجر.' },
+  { id: 'prg', n: 'مبرمج',     ic: '</>', p: 250000, role: 'programmer', d: 'أعلى رتبة قابلة للشراء، وصلاحياتها قريبة من صاحب الموقع.' },
+];
+
 // عشوائية من crypto وليست Math.random، والخادم وحده من يقرر
 const rnd = () => crypto.getRandomValues(new Uint32Array(1))[0] / 4294967296;
 const rint = (lo, hi) => lo + Math.floor(rnd() * (hi - lo + 1));
@@ -200,6 +212,9 @@ async function view(env, u, opt = {}) {
     gleft: Math.max(0, GIFT_COINS_DAY - (s.d.gd || 0)),
     items: cat.items, hid: cat.hid, tasks: TASKS,
   };
+  const rk = await rankList(env, u);
+  shop.rk = rk.cur;
+  shop.ranks = rk.list;
   if (opt.counts) shop.cnt = await counts(env, u.id, now);
   if (opt.adm && isAdmin(u)) {
     const rs = await env.DB.prepare('SELECT item_id,n FROM shop_sales').all();
@@ -207,6 +222,29 @@ async function view(env, u, opt = {}) {
     for (const r of rs.results) shop.sales[r.item_id] = r.n;
   }
   return shop;
+}
+
+// الرتبة الحالية على سلّم الرتب المعروضة ('' = لا شيء، و owner/staff = خارج السلّم فلا شراء)
+function rankNow(f) {
+  if (f.role === 'owner') return 'owner';
+  if (f.role === 'programmer') return 'prg';
+  if (f.role !== 'member') return 'staff';
+  let id = '';
+  for (const r of RANKS) if (r.rank && (f.rank || 0) >= r.rank) id = r.id;
+  return id;
+}
+async function rankList(env, u) {
+  const f = (await env.DB.prepare('SELECT role,rank FROM users WHERE id=?').bind(u.id).first()) || { role: u.role, rank: u.rank };
+  const cur = rankNow(f);
+  const ci = RANKS.findIndex((r) => r.id === cur);
+  const blocked = cur === 'owner' || cur === 'staff' || cur === 'prg' || !!u.rv;
+  return {
+    cur,
+    list: RANKS.map((r, i) => ({
+      id: r.id, n: r.n, ic: r.ic, p: r.p, d: r.d,
+      st: r.id === cur ? 'cur' : (blocked ? 'no' : (i < ci ? 'low' : 'buy')),
+    })),
+  };
 }
 
 const findItem = (cat, id) => cat.items.find((x) => x.id === id);
@@ -238,6 +276,42 @@ const shopBuy = wrap(async (req, env) => {
     return { delta: -it.p };
   });
   await env.DB.prepare('INSERT INTO shop_sales(item_id,n) VALUES(?,1) ON CONFLICT(item_id) DO UPDATE SET n=n+1').bind(id).run();
+  return json({ ok: true, shop: await view(env, u) });
+});
+
+// شراء رتبة: الخادم وحده يقرر. تُخصم العملات أولاً ثم تُطبَّق الرتبة بشرط أنها أعلى مما يملكه،
+// وإن فشل التطبيق (سباق طلبين مثلاً) تُرد العملات تلقائياً. كل شراء يُسجَّل في سجل الإجراءات.
+const shopRank = wrap(async (req, env) => {
+  const u = await member(req, env);
+  const b = (await readBody(req)) || {};
+  const R = RANKS.find((x) => x.id === String(b.id || ''));
+  if (!R) throw new ShopErr('الرتبة غير موجودة', 404);
+  if (u.rv) throw new ShopErr('لا يمكن شراء رتبة أثناء سحب الصلاحيات', 403);
+  if (u.role !== 'member') throw new ShopErr('رتبتك الحالية لا تحتاج إلى شراء', 403);
+  const out = await mutate(env, u.id, async (s, now) => {
+    const f = await env.DB.prepare('SELECT role,rank FROM users WHERE id=?').bind(u.id).first();
+    if (!f || f.role !== 'member') throw new ShopErr('رتبتك الحالية لا تحتاج إلى شراء', 403);
+    if (R.rank && (f.rank || 0) >= R.rank) throw new ShopErr('رتبتك الحالية مساوية لهذه الرتبة أو أعلى منها');
+    if (s.coins < R.p) throw new ShopErr('🪙 رصيدك لا يكفي');
+    s.d.rk = { id: R.id, ts: now, pr: f.rank || 0 };
+    addTx(s, now, 'شراء رتبة ' + R.n + ' (-' + R.p + ')');
+    return { delta: -R.p, prev: f.rank || 0 };
+  });
+  const now = Date.now();
+  const up = R.role
+    ? env.DB.prepare("UPDATE users SET role=? WHERE id=? AND role='member'").bind(R.role, u.id)
+    : env.DB.prepare("UPDATE users SET rank=? WHERE id=? AND role='member' AND rank<?").bind(R.rank, u.id, R.rank);
+  const r = await up.run();
+  if (!r.meta.changes) {
+    await mutate(env, u.id, (s, t) => { delete s.d.rk; addTx(s, t, 'استرجاع ثمن رتبة ' + R.n + ' (+' + R.p + ')'); return { delta: R.p }; });
+    throw new ShopErr('تعذر تطبيق الرتبة وأُعيدت عملاتك، حاول مرة أخرى');
+  }
+  await env.DB.batch([
+    env.DB.prepare('INSERT INTO mod_log(actor_id,actor_name,action,target_id,target_name,detail,ts) VALUES(?,?,?,?,?,?,?)')
+      .bind(u.id, u.name, 'rank', u.id, u.name, ('شراء من المتجر: ' + R.n + ' (' + out.prev + ' ← ' + (R.rank || R.role) + ') بسعر ' + R.p).slice(0, 300), now),
+    env.DB.prepare('INSERT INTO notifications(user_id,ty,text,ref,ts) VALUES(?,?,?,?,?)')
+      .bind(u.id, 'rank', 'مبروك! حصلت على رتبة ' + R.n + ' من المتجر', null, now),
+  ]);
   return json({ ok: true, shop: await view(env, u) });
 });
 
@@ -511,6 +585,7 @@ export async function settingsSet(req, env) {
 export const SHOP_POST = {
   '/api/shop/buy': shopBuy,
   '/api/shop/equip': shopEquip,
+  '/api/shop/rank': shopRank,
   '/api/shop/wish': shopWish,
   '/api/shop/claim': shopClaim,
   '/api/shop/gift': shopGift,
