@@ -1,6 +1,6 @@
 /* public/style.js — تلوين الأسماء
- * الرمز: 32 بت (15 مستعملة) يطابق src/style.js
- *   0-5 لوحة (0..63) | 6-8 حركة (0..7) | 9-10 سرعة (0..2) | 11-12 توهج (0..3) | 13 عريض | 14 حدّ
+ * الرمز: 0 = بلا تلوين، وإلا 15 بتاً تطابق src/style.js
+ *   0-5 لوحة (0..63) | 6-8 حركة (0..7) | 9-10 سرعة+1 (1..3) | 11-12 توهج (0..3) | 13 عريض | 14 حدّ
  * الاستعمال في الواجهة:
  *   1) ضع data-nsu="رقم_العضو" على عنصر الاسم (span) فيُلوَّن تلقائياً بعد جلب رمزه.
  *   2) NS.openEditor({name:'اسمي', uid: رقمي}) يفتح نافذة التخصيص.
@@ -33,11 +33,17 @@
 
   function decode(c) {
     c = c | 0;
-    return { p: c & 63, a: (c >> 6) & 7, s: Math.min(2, (c >> 9) & 3), g: (c >> 11) & 3, b: (c >> 13) & 1, o: (c >> 14) & 1 };
+    return { p: c & 63, a: (c >> 6) & 7, s: Math.max(0, Math.min(2, ((c >> 9) & 3) - 1)), g: (c >> 11) & 3, b: (c >> 13) & 1, o: (c >> 14) & 1 };
   }
-  function encode(o) {
-    return ((o.p & 63) | ((o.a & 7) << 6) | ((Math.min(2, o.s) & 3) << 9) | ((o.g & 3) << 11) | ((o.b & 1) << 13) | ((o.o & 1) << 14)) >>> 0;
+  function encode(o) {                                   // السرعة تُخزَّن +1 فلا يساوي الرمز المُلوَّن صفراً (0 = بلا تلوين)
+    return ((o.p & 63) | ((o.a & 7) << 6) | (((Math.min(2, o.s) + 1) & 3) << 9) | ((o.g & 3) << 11) | ((o.b & 1) << 13) | ((o.o & 1) << 14)) >>> 0;
   }
+
+  /* ---------- الستايلات الجاهزة (مجانية). الأرقام تطابق PRESET_CODES في src/style.js ---------- */
+  var PRESETS = [["ناري", 5201], ["جمر", 5248], ["لافا", 13904], ["ثلجي", 2680], ["جليد", 3016], ["وميض", 1922], ["ذهبي", 15682], ["قوس قزح", 9472], ["قوس سريع", 3840], ["أورورا", 2661], ["غروب", 2653], ["محيط", 601], ["نيون سماوي", 16200], ["نيون وردي", 16206], ["نيون أخضر", 16197], ["نيون بنفسجي", 16204], ["حلوى", 1150], ["مارشميلو", 688], ["ياقوت", 12800], ["زمرد", 13126], ["زفير", 13130], ["جوهرة", 10892], ["سماء", 2682], ["موجة", 1225], ["موجة ملوّنة", 1249], ["رقصة", 3790], ["غيمة", 3529], ["فراشة", 3550], ["نبض", 16000], ["هدوء", 2700], ["برق", 6020], ["شرارة", 5505], ["ليلي", 10762], ["فجر", 2673], ["ربيع", 1110], ["غابة", 2645], ["ملكي", 13660], ["ورد", 3215], ["كرز", 27136], ["شفق", 3170]];
+  var COST = 100;                                        // يطابق STYLE_COST في src/style.js
+  var PSET = {}; PRESETS.forEach(function (x) { PSET[x[1]] = 1; });
+  function isFree(code) { return !code || !!PSET[code]; }
 
   /* ---------- CSS ---------- */
   var css = '' +
@@ -66,10 +72,13 @@
     '@media (prefers-reduced-motion:reduce){.ns,.ns .ns-l{animation:none!important}}' +
     /* نافذة التخصيص */
     '#nsw{position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,.6);display:flex;align-items:center;justify-content:center;direction:rtl;font-family:inherit}' +
-    '#nsw .nsc{background:#1c1c24;color:#eee;border-radius:14px;padding:16px;width:min(420px,94vw);max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)}' +
+    '#nsw .nsc{background:#1c1c24;color:#eee;border-radius:14px;padding:16px;width:min(460px,94vw);max-height:92vh;overflow:auto;box-shadow:0 10px 40px rgba(0,0,0,.5)}' +
     '#nsw h3{margin:0 0 10px;font-size:16px}#nsw .nsp{text-align:center;font-size:24px;padding:14px 6px;background:#12121a;border-radius:10px;margin-bottom:12px;min-height:34px;overflow:hidden;text-overflow:ellipsis}' +
-    '#nsw .nsg{display:grid;grid-template-columns:repeat(8,1fr);gap:6px;margin-bottom:10px}' +
-    '#nsw .nsg button{height:28px;border-radius:7px;border:2px solid transparent;cursor:pointer;padding:0}#nsw .nsg button.on{border-color:#fff}' +
+    '#nsw .nst{display:flex;gap:6px;margin-bottom:10px}#nsw .nst button{flex:1;padding:8px 4px;border-radius:9px;border:1px solid #3a3a4a;background:#2b2b38;color:#eee;cursor:pointer;font-size:13px}#nsw .nst button.on{background:#5b6cff;border-color:#8a96ff}' +
+    '#nsw .nsg{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin-bottom:10px}' +
+    '#nsw .nsg button{background:#12121a;border:2px solid #2b2b38;border-radius:9px;padding:8px 4px;cursor:pointer;color:#eee;min-width:0;text-align:center}#nsw .nsg button.on{border-color:#fff}' +
+    '#nsw .nsg .nsn{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:15px;vertical-align:top}#nsw .nsg small{display:block;font-size:10px;opacity:.6;margin-top:3px}' +
+    '#nsw .nsh{font-size:12px;opacity:.75;margin:0 0 8px;line-height:1.6}' +
     '#nsw .nsr{margin:8px 0 4px;font-size:12px;opacity:.7}#nsw .nsb{display:flex;flex-wrap:wrap;gap:6px}' +
     '#nsw .nsb button{background:#2b2b38;color:#eee;border:1px solid #3a3a4a;border-radius:8px;padding:5px 10px;cursor:pointer;font-size:13px}#nsw .nsb button.on{background:#5b6cff;border-color:#8a96ff}' +
     '#nsw .nsa{display:flex;gap:8px;margin-top:14px}#nsw .nsa button{flex:1;padding:9px;border-radius:9px;border:0;cursor:pointer;font-size:14px}' +
@@ -173,52 +182,87 @@
     for (var i = 0; i < els.length; i++) { els[i].setAttribute('data-nsd', '1'); apply(els[i], code); }
   }
 
-  /* ---------- نافذة التخصيص ---------- */
+  /* ---------- نافذة التخصيص: تبويبان، وكل خيار يعرض اسم المستخدم نفسه ---------- */
+  var DEF = encode({ p: 5, a: 0, s: 1, g: 0, b: 0, o: 0 });   // نقطة بداية التخصيص إن لم يكن للعضو ستايل
   function openEditor(opt) {
     opt = opt || {};
     var name = String(opt.name || 'اسمك'), uid = opt.uid;
-    var cur = decode(opt.code != null ? opt.code : (uid != null ? cache[uid] : 0) || 0);
-    if (!cur.p && !cur.a && !((opt.code | 0) || (uid != null && cache[uid]))) cur.p = 5;
+    var start = (opt.code != null ? opt.code : (uid != null ? cache[uid] : 0)) | 0;
+    var sel = start, tab = (start && !PSET[start]) ? 2 : 1;
     var old = document.getElementById('nsw'); if (old) old.remove();
     var w = document.createElement('div'); w.id = 'nsw';
     var card = document.createElement('div'); card.className = 'nsc'; w.appendChild(card);
-    card.innerHTML = '<h3>🎨 تلوين اسمي</h3><div class="nsp"><span id="nspv"></span></div><div class="nsg" id="nsgp"></div>' +
-      '<div class="nsr">الحركة</div><div class="nsb" id="nsba"></div>' +
-      '<div class="nsr">السرعة</div><div class="nsb" id="nsbs"></div>' +
-      '<div class="nsr">التوهّج</div><div class="nsb" id="nsbg"></div>' +
-      '<div class="nsr">خيارات</div><div class="nsb" id="nsbo"></div>' +
-      '<div class="nser" id="nser"></div><div class="nsa"><button class="nsno" id="nsno">إلغاء</button><button class="nsno" id="nsrs">إزالة التلوين</button><button class="nsok" id="nsok">حفظ</button></div>';
+    card.innerHTML = '<h3>🎨 تلوين اسمي</h3><div class="nsp"><span id="nspv"></span></div>' +
+      '<div class="nst"><button id="nst1">✨ ستايلات جاهزة (مجاناً)</button><button id="nst2">🛠️ تخصيص كامل (' + COST + ' 🪙)</button></div>' +
+      '<div id="nsbody"></div><div class="nser" id="nser"></div>' +
+      '<div class="nsa"><button class="nsno" id="nsno">إلغاء</button><button class="nsno" id="nsrs">إزالة التلوين</button><button class="nsok" id="nsok"></button></div>';
     document.body.appendChild(w);
-    var pv = card.querySelector('#nspv'); pv.textContent = name;
-    var er = card.querySelector('#nser');
-    function draw() { pv.removeAttribute('data-nsd'); apply(pv, encode(cur)); mark(); }
-    function group(id, labels, key, base) {
-      var box = card.querySelector(id); box.innerHTML = '';
-      labels.forEach(function (t, i) {
-        var b = document.createElement('button'); b.textContent = t; b.setAttribute('data-k', key); b.setAttribute('data-v', i);
-        b.onclick = function () { cur[key] = i; draw(); }; box.appendChild(b);
-      });
-    }
+    var pv = card.querySelector('#nspv'), body = card.querySelector('#nsbody'), er = card.querySelector('#nser'), okb = card.querySelector('#nsok');
+    pv.textContent = name;
+
+    function cur() { return decode(sel || DEF); }
+    function setCur(fn) { var o = cur(); fn(o); sel = encode(o); draw(); }
     function mark() {
-      card.querySelectorAll('[data-k]').forEach(function (b) {
+      var o = cur();
+      body.querySelectorAll('[data-c]').forEach(function (b) { b.classList.toggle('on', +b.getAttribute('data-c') === sel); });
+      body.querySelectorAll('[data-p]').forEach(function (b) { b.classList.toggle('on', !!sel && +b.getAttribute('data-p') === o.p); });
+      body.querySelectorAll('[data-k]').forEach(function (b) {
         var k = b.getAttribute('data-k'), v = +b.getAttribute('data-v');
-        b.classList.toggle('on', b.getAttribute('data-t') === '1' ? !!cur[k] : cur[k] === v);
+        b.classList.toggle('on', b.getAttribute('data-t') === '1' ? !!(sel && o[k]) : !!sel && o[k] === v);
       });
-      card.querySelectorAll('#nsgp button').forEach(function (b, i) { b.classList.toggle('on', i === cur.p); });
     }
-    var gp = card.querySelector('#nsgp');
-    for (var i = 0; i < 64; i++) (function (i) {
-      var c = pal(i), b = document.createElement('button');
-      b.style.background = 'linear-gradient(135deg,' + c[0] + ',' + c[1] + ')';
-      b.onclick = function () { cur.p = i; draw(); }; gp.appendChild(b);
-    })(i);
-    group('#nsba', ANIMS, 'a'); group('#nsbs', ['بطيء', 'متوسط', 'سريع'], 's'); group('#nsbg', ['بدون', 'خفيف', 'متوسط', 'قوي'], 'g');
-    var bo = card.querySelector('#nsbo');
-    [['عريض', 'b'], ['حدّ خارجي', 'o']].forEach(function (x) {
-      var b = document.createElement('button'); b.textContent = x[0]; b.setAttribute('data-k', x[1]); b.setAttribute('data-v', 1); b.setAttribute('data-t', '1');
-      b.onclick = function () { cur[x[1]] = cur[x[1]] ? 0 : 1; draw(); }; bo.appendChild(b);
-    });
-    draw();
+    function draw() {
+      pv.removeAttribute('data-nsd'); apply(pv, sel); mark();
+      okb.textContent = isFree(sel) ? 'حفظ (مجاناً)' : 'حفظ (' + COST + ' 🪙)';
+    }
+    function cell(code, label, attr, val) {                // خلية = اسم المستخدم بذلك الستايل
+      var b = document.createElement('button'), sp = document.createElement('span');
+      sp.className = 'nsn'; sp.textContent = name; apply(sp, code);
+      b.appendChild(sp); if (label) { var l = document.createElement('small'); l.textContent = label; b.appendChild(l); }
+      b.setAttribute(attr, val); return b;
+    }
+    function group(title, labels, key) {
+      var t = document.createElement('div'); t.className = 'nsr'; t.textContent = title; body.appendChild(t);
+      var box = document.createElement('div'); box.className = 'nsb'; body.appendChild(box);
+      labels.forEach(function (lab, i) {
+        var b = document.createElement('button'); b.textContent = lab; b.setAttribute('data-k', key); b.setAttribute('data-v', i);
+        b.onclick = function () { setCur(function (o) { o[key] = i; }); }; box.appendChild(b);
+      });
+    }
+    function render() {
+      card.querySelector('#nst1').classList.toggle('on', tab === 1);
+      card.querySelector('#nst2').classList.toggle('on', tab === 2);
+      body.innerHTML = '';
+      var g = document.createElement('div'); g.className = 'nsg';
+      if (tab === 1) {
+        PRESETS.forEach(function (x) {
+          var b = cell(x[1], x[0], 'data-c', x[1]);
+          b.onclick = function () { sel = x[1]; draw(); }; g.appendChild(b);
+        });
+        body.appendChild(g);
+      } else {
+        var h = document.createElement('p'); h.className = 'nsh';
+        h.textContent = 'اختر اللون من أسمائك أدناه ثم عدّل الحركة والتوهج. يُخصم ' + COST + ' 🪙 عند الحفظ، إلا إذا طابق النتيجة أحد الستايلات الجاهزة.';
+        body.appendChild(h);
+        for (var i = 0; i < 64; i++) (function (i) {
+          var b = cell(encode({ p: i, a: 0, s: 1, g: 0, b: 0, o: 0 }), '', 'data-p', i);
+          b.onclick = function () { setCur(function (o) { o.p = i; }); }; g.appendChild(b);
+        })(i);
+        body.appendChild(g);
+        group('الحركة', ANIMS, 'a'); group('السرعة', ['بطيء', 'متوسط', 'سريع'], 's'); group('التوهّج', ['بدون', 'خفيف', 'متوسط', 'قوي'], 'g');
+        var t = document.createElement('div'); t.className = 'nsr'; t.textContent = 'خيارات'; body.appendChild(t);
+        var bo = document.createElement('div'); bo.className = 'nsb'; body.appendChild(bo);
+        [['عريض', 'b'], ['حدّ خارجي', 'o']].forEach(function (x) {
+          var b = document.createElement('button'); b.textContent = x[0]; b.setAttribute('data-k', x[1]); b.setAttribute('data-v', 1); b.setAttribute('data-t', '1');
+          b.onclick = function () { setCur(function (o) { o[x[1]] = o[x[1]] ? 0 : 1; }); }; bo.appendChild(b);
+        });
+      }
+      mark();
+    }
+    card.querySelector('#nst1').onclick = function () { tab = 1; render(); };
+    card.querySelector('#nst2').onclick = function () { tab = 2; render(); };
+    render(); draw();
+
     function close() { anim.delete(pv); vis.delete(pv); w.remove(); }
     w.onclick = function (e) { if (e.target === w) close(); };
     card.querySelector('#nsno').onclick = close;
@@ -229,14 +273,14 @@
         .then(function (x) {
           if (!x[0]) { er.textContent = (x[1] && x[1].error) || 'تعذّر الحفظ'; return; }
           if (uid != null) setOwn(uid, x[1].code);
-          if (typeof opt.onSaved === 'function') opt.onSaved(x[1].code);
+          if (typeof opt.onSaved === 'function') opt.onSaved(x[1].code, x[1].cost | 0);
           close();
         })
         .catch(function () { er.textContent = 'خطأ في الاتصال'; });
     }
-    card.querySelector('#nsok').onclick = function () { save(encode(cur)); };
+    okb.onclick = function () { save(sel); };
     card.querySelector('#nsrs').onclick = function () { save(0); };
   }
 
-  window.NS = { decode: decode, encode: encode, apply: apply, pal: pal, set: setOwn, scan: scan, openEditor: openEditor, cache: cache };
+  window.NS = { PRESETS: PRESETS, COST: COST, decode: decode, encode: encode, apply: apply, pal: pal, set: setOwn, scan: scan, openEditor: openEditor, cache: cache };
 })();
