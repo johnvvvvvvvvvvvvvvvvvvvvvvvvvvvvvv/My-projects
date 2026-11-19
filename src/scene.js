@@ -8,6 +8,7 @@ import { DurableObject } from 'cloudflare:workers';
 import { json } from './http.js';
 import { currentUser } from './security.js';
 import { cleanLook, loadLooks } from './faces.js';
+import { cleanOutfit, loadOutfits } from './outfit.js';
 
 // الإحداثيات نسبية (0..1) على مسرح بنسبة 4:3. المسافات تُحسب بعرض المسرح (محور y × 0.75).
 const MINX = 0.05, MAXX = 0.95, MINY = 0.16, MAXY = 0.95;   // حدود الشخصية
@@ -113,6 +114,8 @@ export class DateScene extends DurableObject {
     const ps = request.headers.get('x-ps') === '1' ? 1 : 0;
     let lk = null;                     // شكل الوجه المحفوظ (يُتحقق منه، وإلا يُشتق في المتصفح من رقم الحساب)
     try { lk = cleanLook(JSON.parse(request.headers.get('x-lk') || 'null')); } catch (e) { lk = null; }
+    let ot = null;                     // ملابس محفوظة (null = الافتراضي)
+    try { ot = cleanOutfit(JSON.parse(request.headers.get('x-ot') || 'null')); } catch (e) { ot = null; }
     let n = '';
     try { n = decodeURIComponent(request.headers.get('x-uname') || ''); } catch (e) {}
     if (!id || !pid || id === pid) return new Response('bad', { status: 400 });
@@ -134,7 +137,7 @@ export class DateScene extends DurableObject {
     this.ctx.acceptWebSocket(server, ['u' + id]);
     const now = Date.now();
     const me = {
-      id, n: n.slice(0, 16), ps, lk,
+      id, n: n.slice(0, 16), ps, lk, ot,
       x: prev ? prev.x : id === this.pair[0] ? 0.3 : 0.7,
       y: prev ? prev.y : 0.72,
       mt: 0, la: now,
@@ -145,9 +148,9 @@ export class DateScene extends DurableObject {
     const players = {};
     for (const ws of this.live()) {
       const a = ws.deserializeAttachment();
-      if (a && a.id) players[a.id] = { x: r3(a.x), y: r3(a.y), n: a.n, lk: a.lk || null };
+      if (a && a.id) players[a.id] = { x: r3(a.x), y: r3(a.y), n: a.n, lk: a.lk || null, ot: a.ot || null };
     }
-    players[id] = { x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null };
+    players[id] = { x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null, ot: me.ot || null };
     server.send(JSON.stringify({
       t: 'hello', you: id, now, players, simple: this.simple,
       walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
@@ -155,7 +158,7 @@ export class DateScene extends DurableObject {
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
-    this.bcast({ t: 'j', id, x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null }, server);
+    this.bcast({ t: 'j', id, x: r3(me.x), y: r3(me.y), n: me.n, lk: me.lk || null, ot: me.ot || null }, server);
     this.nearCheck(true);
     this.ctx.storage.getAlarm().then((al) => { if (!al) this.ctx.storage.setAlarm(Date.now() + 120000); }).catch(() => {});
     return new Response(null, { status: 101, webSocket: client });
@@ -185,6 +188,14 @@ export class DateScene extends DurableObject {
       if (!lk) return;
       a.lk = lk; ws.serializeAttachment(a);
       this.bcast({ t: 'face', id: a.id, look: lk }, ws);
+      return;
+    }
+    // تغيير الملابس أثناء الموعد (الحفظ الدائم عبر POST /api/date/outfit). outfit: null = الافتراضي
+    if (j.t === 'outfit') {
+      const ot = j.outfit === null ? null : cleanOutfit(j.outfit);
+      if (j.outfit !== null && !ot) return;
+      a.ot = ot; ws.serializeAttachment(a);
+      this.bcast({ t: 'outfit', id: a.id, outfit: ot }, ws);
       return;
     }
 
@@ -628,6 +639,7 @@ export async function sceneConnect(req, env, url) {
   const pid = r.user_a === u.id ? r.user_b : r.user_a;
   const sp = await env.DB.prepare('SELECT personal_space ps FROM scene_prefs WHERE user_id=?').bind(u.id).first();
   const looks = await loadLooks(env, [u.id]);
+  const outs = await loadOutfits(env, [u.id]);
   // الهوية تُمرَّر بترويسات داخلية تُستبدل دائماً، فلا يستطيع العميل تزويرها
   const r2 = new Request(req);
   r2.headers.set('x-uid', String(u.id));
@@ -635,6 +647,7 @@ export async function sceneConnect(req, env, url) {
   r2.headers.set('x-uname', encodeURIComponent(u.name || ''));
   r2.headers.set('x-ps', sp && sp.ps ? '1' : '0');
   r2.headers.set('x-lk', looks[u.id] ? JSON.stringify(looks[u.id]) : '');
+  r2.headers.set('x-ot', outs[u.id] ? JSON.stringify(outs[u.id]) : '');
   return env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + id)).fetch(r2);
 }
       
