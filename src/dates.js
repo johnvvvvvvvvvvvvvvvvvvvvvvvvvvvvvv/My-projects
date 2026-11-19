@@ -8,6 +8,7 @@ import { currentUser } from './security.js';
 import { DAY } from './config.js';
 import { award } from './points.js';
 import { faceTables, FACE_WANT, faceSet, loadLooks } from './faces.js';
+import { styleTables, STYLE_WANT, styleSet, styleGet } from './style.js';
 
 export const DATE_TYPES = ['عشاء رومانسي', 'سينما', 'مشي على الشاطئ', 'قهوة وحديث', 'أمسية ألعاب'];
 const QUESTIONS = [
@@ -35,6 +36,7 @@ export function dateTables(env) {
     // «المساحة الشخصية»: جدول مستقل كي لا نمسّ rel_prefs القائم؛ الافتراضي 0 (تأثيرات القرب مفتوحة)
     env.DB.prepare('CREATE TABLE IF NOT EXISTS scene_prefs(user_id INTEGER PRIMARY KEY, personal_space INTEGER NOT NULL DEFAULT 0)'),
     ...faceTables(env),                // أشكال وجوه الشخصيات (جدول جديد مستقل)
+    ...styleTables(env),               // تلوين الأسماء (جدول جديد مستقل)
   ];
 }
 
@@ -43,6 +45,7 @@ export const DATE_WANT = {
   date_msgs: ['id', 'date_id', 'user_id', 'kind', 'text', 'ts'],
   scene_prefs: ['user_id', 'personal_space'],
   ...FACE_WANT,
+  ...STYLE_WANT,
 };
 
 async function ctx(req, env) {
@@ -276,5 +279,6 @@ export const DATE_POST = {
   '/api/date/invite': dInvite, '/api/date/respond': dRespond, '/api/date/cancel': dCancel,
   '/api/date/start': dStart, '/api/date/say': dSay, '/api/date/ask': dAsk, '/api/date/end': dEnd,
   '/api/date/face': faceSet,
+  '/api/style/save': styleSet,
 };
-export const DATE_GET = { '/api/date/list': dList, '/api/date/poll': dPoll };
+export const DATE_GET = { '/api/date/list': dList, '/api/date/poll': dPoll, '/api/style/get': styleGet };
