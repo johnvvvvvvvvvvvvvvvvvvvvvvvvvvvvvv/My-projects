@@ -594,3 +594,19 @@ export const SHOP_POST = {
   '/api/shop/banner': shopBanner,
   '/api/settings/set': settingsSet,
 };
+
+// يخصم عملات (أو يردّها إن كانت الكمية سالبة) لخدمة خارج المتجر مثل تلوين الاسم. يُسجَّل في سجل العمليات.
+// يُرجع { ok:true } أو { ok:false, error, status } إن لم يكفِ الرصيد.
+export async function spendCoins(env, uid, amount, label) {
+  try {
+    await mutate(env, uid, (s, now) => {
+      if (amount > 0 && s.coins < amount) throw new ShopErr('🪙 رصيدك لا يكفي (المطلوب ' + amount + ' 🪙)', 402);
+      addTx(s, now, label + ' (' + (amount > 0 ? '-' : '+') + Math.abs(amount) + ')');
+      return { delta: -amount };
+    });
+    return { ok: true };
+  } catch (e) {
+    if (e instanceof ShopErr) return { ok: false, error: e.message, status: e.status };
+    throw e;
+  }
+}
