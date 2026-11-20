@@ -31,6 +31,13 @@ const SIDE = { x: 0.84, y: 0.80 };   // الطاولة الصغيرة في ال�
 const SIDE_R = 0.20;         // أقصى مسافة من الطاولة الصغيرة للطلب أو الأكل أو الإطعام
 const CHAIR_Y = 0.50;        // صف الكراسي (على جانبي الطاولة)
 const CHAIR_X = { tuck: [0.30, 0.70], out: [0.23, 0.77] };   // [صاحب المعرّف الأصغر، الأكبر]: كرسي مدفوع / مسحوب
+// تصادم مشهد العشاء: مستطيلات على الأرض (موضع القدمين) يُمنع دخولها، وتُوسَّع بنصف حجم الشخصية. يجب أن تطابق DT_BLK في public/date.js
+const OB_TBL = [0.33, 0.405, 0.67, 0.545];     // الطاولة الرئيسية
+const OB_SIDE = [0.805, 0.78, 0.875, 0.82];    // الطاولة الصغيرة
+const OB_CH = { w: 0.05, y0: 0.468, y1: 0.515 };   // الكرسي (مركزه x من CHAIR_X، وصفه CHAIR_Y)
+const OB_PX = 0.025, OB_PY = 0.012;            // نصف حجم الشخصية
+// الجرسون: يصل إلى الطاولة بعد WT_IN، ويضع الطبق بعد WT_PUT أخرى (لحظة r)، ثم يغادر خلال WT_OUT. جرسون واحد: الطلبات تُصفّ
+const WT_IN = 2600, WT_PUT = 600, WT_OUT = 2400;
 const DRINKS = new Set(['water', 'iced_tea', 'lemonmint', 'coffee', 'tea', 'cocoa', 'qahwa', 'cola', 'lemonade', 'soda', 'berry',
   'grape', 'orange', 'mango', 'strawberry', 'milkshake']);   // معرّفات المشروبات المسموحة (خصائصها ورسمها في date.js)
 const FEED_R = 0.15;         // أقصى مسافة بين الطرفين لإطعام لقمة: اليد تحملها إلى فم الشريك فلا بد من قرب حقيقي (لا استثناء للجالسين)
@@ -112,6 +119,7 @@ export class DateScene extends DurableObject {
     const id = parseInt(request.headers.get('x-uid') || '0', 10) || 0;
     const pid = parseInt(request.headers.get('x-pid') || '0', 10) || 0;
     const ps = request.headers.get('x-ps') === '1' ? 1 : 0;
+    const dn = request.headers.get('x-dn') === '1' ? 1 : 0;      // موعد عشاء: التصادم مع الطاولات والكراسي
     let lk = null;                     // شكل الوجه المحفوظ (يُتحقق منه، وإلا يُشتق في المتصفح من رقم الحساب)
     try { lk = cleanLook(JSON.parse(request.headers.get('x-lk') || 'null')); } catch (e) { lk = null; }
     let ot = null;                     // ملابس محفوظة (null = الافتراضي)
@@ -137,7 +145,7 @@ export class DateScene extends DurableObject {
     this.ctx.acceptWebSocket(server, ['u' + id]);
     const now = Date.now();
     const me = {
-      id, n: n.slice(0, 16), ps, lk, ot,
+      id, n: n.slice(0, 16), ps, lk, ot, dn,
       x: prev ? prev.x : id === this.pair[0] ? 0.3 : 0.7,
       y: prev ? prev.y : 0.72,
       mt: 0, la: now,
@@ -253,6 +261,7 @@ export class DateScene extends DurableObject {
       const lim = (MAXV * dt) / 1000 + 0.015;
       let fixed = false;
       if (d > lim) { const f = lim / d; nx = a.x + (nx - a.x) * f; ny = a.y + (ny - a.y) * f; fixed = true; }   // لا قفز
+      if (a.dn) { const b = this.block(a.x, a.y, nx, ny); if (b.x !== nx || b.y !== ny) { nx = b.x; ny = b.y; fixed = true; } }   // لا مرور عبر الطاولة والكراسي
       const px = a.x, py = a.y;
       a.x = nx; a.y = ny; a.mt = now;
       ws.serializeAttachment(a);
@@ -347,6 +356,32 @@ export class DateScene extends DurableObject {
   curPlate(T) { return this.plates(T).find((q) => q.n > 0) || null; }   // الطبق الذي يؤكل منه الآن
   nearTable(a) { return dist(a, TABLE) <= TABLE_R; }
   nearSide(a) { return dist(a, SIDE) <= SIDE_R; }
+  // ---------- التصادم والجرسون ----------
+  obst() {
+    const o = [OB_TBL.slice(), OB_SIDE.slice()];
+    for (const id of this.pair || []) {
+      const G = this.gl[id], idx = this.pair[0] === id ? 0 : 1, x = CHAIR_X[G && G.o ? 'out' : 'tuck'][idx];
+      o.push([x - OB_CH.w, OB_CH.y0, x + OB_CH.w, OB_CH.y1]);
+    }
+    return o.map((r) => [r[0] - OB_PX, r[1] - OB_PY, r[2] + OB_PX, r[3] + OB_PY]);
+  }
+  // يتحرك من (ax,ay) نحو (nx,ny) على خطوات صغيرة (لا تجاوز لمستطيل رفيع)، ينزلق على الحافة، ومن كان داخل مستطيل يخرج منه بحرية
+  block(ax, ay, nx, ny) {
+    const o = this.obst(), inn = (x, y) => o.map((r, i) => (x > r[0] && x < r[2] && y > r[1] && y < r[3] ? i : -1)).filter((i) => i >= 0);
+    const n = Math.max(1, Math.ceil(dist({ x: ax, y: ay }, { x: nx, y: ny }) / 0.02));
+    let cx = ax, cy = ay;
+    for (let k = 1; k <= n; k++) {
+      const tx = ax + (nx - ax) * k / n, ty = ay + (ny - ay) * k / n, h0 = inn(cx, cy);
+      const ok = (x, y) => inn(x, y).every((i) => h0.includes(i));
+      if (ok(tx, ty)) { cx = tx; cy = ty; } else if (ok(tx, cy)) cx = tx; else if (ok(cx, ty)) cy = ty;
+    }
+    return { x: cx, y: cy };
+  }
+  waiterR(now) {                                       // لحظة وضع الطبق على الطاولة (والجرسون جرسون واحد، فالطلبات تُصفّ)
+    const arr = Math.max(now, this.wfree || 0) + WT_IN + WT_PUT;
+    this.wfree = arr + WT_OUT;
+    return arr;
+  }
   chairPos(id, out) {
     const idx = this.pair && this.pair[0] === id ? 0 : 1;
     return { x: CHAIR_X[out ? 'out' : 'tuck'][idx], y: CHAIR_Y };
@@ -435,12 +470,13 @@ export class DateScene extends DurableObject {
       const P = this.plates(T).filter((q) => q.n > 0);          // الأطباق الفارغة تُرفع عند طلب جديد
       if (P.length >= MAX_PLATES) { this.tell(ws, mine ? 'طاولتك ممتلئة: حتى ' + MAX_PLATES + ' أطباق' : 'طاولة شريكك ممتلئة: حتى ' + MAX_PLATES + ' أطباق'); return; }
       const n = biteCount(f, z);
-      P.push({ d: f, z, m: n, n });
+      P.push({ d: f, z, m: n, n, r: this.waiterR(now) });
       T.fp = P;
       ev = { t: 'gs', ev: 'serve', by: a.id, to: mine ? a.id : o.id, fd: f, z, n };
     } else if (t === 'fbite') {
       const cp = this.curPlate(G);
       if (!cp) return;
+      if (cp.r && now < cp.r) { this.tell(ws, 'الجرسون في الطريق بطبقك'); return; }
       if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة لتأكل'); return; }
       if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتأكل بيدك'); return; }
       if (a.fe && now - a.fe < BITE_MS) return;
@@ -452,6 +488,7 @@ export class DateScene extends DurableObject {
       if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
       const cp = this.curPlate(G);
       if (!cp) { this.tell(ws, 'طبقك فارغ'); return; }
+      if (cp.r && now < cp.r) { this.tell(ws, 'الجرسون في الطريق بطبقك'); return; }
       if (!this.nearTable(a)) { this.tell(ws, 'اقترب من الطاولة'); return; }
       if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتطعم شريكك بيدك'); return; }
       if (!this.nearState().fx) { this.tell(ws, 'الإطعام متوقف بسبب إعداد «المساحة الشخصية»'); return; }
@@ -471,10 +508,11 @@ export class DateScene extends DurableObject {
       if (!f) return;
       if (this.sp && this.sp.n > 0) { this.tell(ws, 'الطبق المشترك لم يفرغ بعد'); return; }
       const z = ['s', 'm', 'l'].includes(j.z) ? j.z : 'm', n = biteCount(f, z);
-      this.sp = { d: f, z, m: n, n };
+      this.sp = { d: f, z, m: n, n, r: this.waiterR(now) };
       ev = { t: 'gs', ev: 'serve', by: a.id, to: 'S', fd: f, z, n };
     } else if (t === 'sbite') {
       if (!this.sp || this.sp.n <= 0) return;
+      if (this.sp.r && now < this.sp.r) { this.tell(ws, 'الجرسون في الطريق بالطبق'); return; }
       if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة لتأكل'); return; }
       if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتأكل بيدك'); return; }
       if (a.fe && now - a.fe < BITE_MS) return;
@@ -484,6 +522,7 @@ export class DateScene extends DurableObject {
     } else if (t === 'sfeed') {
       if (!o || !OG) { this.tell(ws, 'شريكك غير موجود في المسرح الآن'); return; }
       if (!this.sp || this.sp.n <= 0) { this.tell(ws, 'الطبق المشترك فارغ'); return; }
+      if (this.sp.r && now < this.sp.r) { this.tell(ws, 'الجرسون في الطريق بالطبق'); return; }
       if (!this.nearSide(a)) { this.tell(ws, 'اقترب من الطاولة الصغيرة'); return; }
       if (G.h) { this.tell(ws, 'ضع كأسك على الطاولة أولاً لتطعم شريكك بيدك'); return; }
       if (!this.nearState().fx) { this.tell(ws, 'الإطعام متوقف بسبب إعداد «المساحة الشخصية»'); return; }
@@ -518,7 +557,8 @@ export class DateScene extends DurableObject {
     const fws = this.playerWs(W.fol);
     if (!fws) { this.stopWalk(); return; }
     const fa = fws.deserializeAttachment();
-    const x = clamp(lead.x + W.dx, MINX, MAXX), y = clamp(lead.y, MINY, MAXY);
+    let x = clamp(lead.x + W.dx, MINX, MAXX), y = clamp(lead.y, MINY, MAXY);
+    if (fa.dn) { const b = this.block(fa.x, fa.y, x, y); x = b.x; y = b.y; }
     fa.x = x; fa.y = y; fa.mt = Date.now();
     fws.serializeAttachment(fa);
     this.bcast({ t: 'p', id: fa.id, x: r3(x), y: r3(y) }, fws);
@@ -632,7 +672,7 @@ export async function sceneConnect(req, env, url) {
   if (!u) return json({ error: 'انتهت الجلسة' }, 401);
   if (u.role === 'visitor') return json({ error: 'غير مسموح' }, 403);
   const r = await env.DB.prepare(
-    "SELECT r.user_a,r.user_b FROM rel_dates d JOIN relationships r ON r.id=d.rel_id " +
+    "SELECT r.user_a,r.user_b,d.ty FROM rel_dates d JOIN relationships r ON r.id=d.rel_id " +
     "WHERE d.id=? AND d.status='live' AND r.status='active' AND (r.user_a=? OR r.user_b=?)"
   ).bind(id, u.id, u.id).first();
   if (!r) return json({ error: 'الموعد غير جارٍ' }, 409);
@@ -648,6 +688,7 @@ export async function sceneConnect(req, env, url) {
   r2.headers.set('x-ps', sp && sp.ps ? '1' : '0');
   r2.headers.set('x-lk', looks[u.id] ? JSON.stringify(looks[u.id]) : '');
   r2.headers.set('x-ot', outs[u.id] ? JSON.stringify(outs[u.id]) : '');
+  r2.headers.set('x-dn', r.ty === 'عشاء رومانسي' ? '1' : '0');      // التصادم في العشاء فقط
   return env.DATE_SCENE.get(env.DATE_SCENE.idFromName('d' + id)).fetch(r2);
 }
       
