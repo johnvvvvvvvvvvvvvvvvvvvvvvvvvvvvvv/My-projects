@@ -1006,6 +1006,7 @@ function dtBodyDraw(ts) {
     dtDinnerTable(g, W, H, s, kd);
     dtSideTable(g, W, H, s);
     if (DT.sp) dtFoodPlate(g, W, H, s, 'S', { fp: [DT.sp] }, kd);
+    dtWaiter(g, W, H, s, ts);
     ['m', 'p'].forEach(function (r) {
       var SG = DT.gl[dtGlId(r)], sc = DT.ch[r], tg = SG && SG.s ? 1 : 0;
       sc.sit = DT.still ? tg : (sc.sit || 0) + (tg - (sc.sit || 0)) * Math.min(1, kd * 6);
@@ -1280,6 +1281,97 @@ var DT_FOOD = {
 };
 var DT_FCOL = { lentil: '#d9892b', salad: '#5aa63c', hummus: '#e8cf9a', garlic: '#d9a441', samosa: '#c9822f', steak: '#7a3b22', pasta: '#f0d9a0', chicken: '#c9772a',
   fish: '#aab4bf', kabsa: '#c98a3c', cake: '#f8c9d4', icecream: '#fbd5e0', fondant: '#4a2616', flan: '#d9902f', berries: '#c0213a' };   // لون كومة الطعام الصلبة تحت الإيموجي
+/* ---------- تصادم العشاء والجرسون ---------- */
+var DT_BLK = { tbl: [0.33, 0.405, 0.67, 0.545], side: [0.805, 0.78, 0.875, 0.82], chW: 0.05, chY0: 0.468, chY1: 0.515, px: 0.025, py: 0.012 };   // نفس OB_* في scene.js
+var DT_WT = { IN: 2600, PUT: 600, OUT: 2400 };                                                       // نفس WT_* في scene.js
+var DT_WOT = [1, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0];                                                    // ملابس الجرسون: قميص أبيض وبنطال أسود وحذاء رسمي
+function dtObst() {
+  var o = [DT_BLK.tbl.slice(), DT_BLK.side.slice()], id;
+  for (id in DT.gl) { var x = dtChX(+id, DT.gl[id].o); o.push([x - DT_BLK.chW, DT_BLK.chY0, x + DT_BLK.chW, DT_BLK.chY1]); }
+  return o.map(function (r) { return [r[0] - DT_BLK.px, r[1] - DT_BLK.py, r[2] + DT_BLK.px, r[3] + DT_BLK.py]; });
+}
+function dtBlock(ax, ay, nx, ny) {              // يمنع دخول الطاولات والكراسي، وينزلق على الحافة، ومن كان داخلها يخرج بحرية (نفس منطق block في الخادم)
+  if (!dtDinner() || !DT.gl) return [nx, ny];
+  var o = dtObst(), n = Math.max(1, Math.ceil(Math.hypot(nx - ax, ny - ay) / 0.02)), cx = ax, cy = ay, k;
+  function inn(x, y) { var r = [], i; for (i = 0; i < o.length; i++) if (x > o[i][0] && x < o[i][2] && y > o[i][1] && y < o[i][3]) r.push(i); return r; }
+  for (k = 1; k <= n; k++) {
+    var tx = ax + (nx - ax) * k / n, ty = ay + (ny - ay) * k / n, h0 = inn(cx, cy);
+    var ok = function (x, y) { return inn(x, y).every(function (i) { return h0.indexOf(i) >= 0; }); };
+    if (ok(tx, ty)) { cx = tx; cy = ty; } else if (ok(tx, cy)) cx = tx; else if (ok(cx, ty)) cy = ty;
+  }
+  return [cx, cy];
+}
+function dtPlateReady(p) { return !p.r || p.r - (DT.clk || 0) <= Date.now(); }       // الطبق لا يظهر ولا يؤكل قبل أن يضعه الجرسون
+function dtWaiterFace() {                       // وجه الجرسون: وجه اللعبة الكرتوني نفسه مرسوماً على الكانفاس (وإن تعذّر فدائرة بسيطة)
+  if (DT.wimg !== undefined) return DT.wimg;
+  DT.wimg = null;
+  try {
+    var lk = [0, 0, 1, 0, 0, 1, 0, 0, 0, 0, 2, 0, 0]; if (!dtLookOk(lk)) lk = dtLookSeed(0);
+    var sv = dtFaceSvg(0, lk).replace('width="100%" height="100%"', 'width="216" height="216"').replace('<svg ', '<svg xmlns="http://www.w3.org/2000/svg" ');
+    var im = new Image(); im.onerror = function () { DT.wimg = null; };
+    im.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(sv); DT.wimg = im;
+  } catch (e) { DT.wimg = null; }
+  return DT.wimg;
+}
+function dtWaiter(g, W, H, s, ts) {             // الجرسون: يدخل من اليسار بصينية، يضع الطبق من خلف الطاولة، ثم يغادر
+  if (DT.still) return;
+  var now = Date.now(), clk = DT.clk || 0, key;
+  DT.wj = DT.wj || {};
+  function reg(id, p) {
+    if (!p || !p.r) return;
+    var k = id + ':' + p.r; if (DT.wj[k]) return;
+    var rdy = p.r - clk;
+    DT.wj[k] = rdy + DT_WT.OUT + 500 < now ? { done: 1, rdy: rdy } : { id: id, d: p.d, rdy: rdy };
+  }
+  for (key in DT.gl) (DT.gl[key].fp || []).forEach(function (p) { reg(key, p); });
+  if (DT.sp) reg('S', DT.sp);
+  for (key in DT.wj) {
+    var j = DT.wj[key];
+    if (j.rdy + DT_WT.OUT + 8000 < now) { delete DT.wj[key]; continue; }
+    if (j.done) continue;
+    var arrive = j.rdy - DT_WT.PUT, start = arrive - DT_WT.IN, end = j.rdy + DT_WT.OUT;
+    if (now < start || now > end) continue;
+    var S = j.id === 'S', pl = dtPlateXY(S ? 'S' : +j.id, W, H);
+    var T = { x: pl.x / W, y: S ? 0.69 : 0.365 }, A = { x: -0.08, y: S ? 0.64 : 0.30 }, u, pos, mv = 1, low = 0;
+    if (now < arrive) { u = (now - start) / DT_WT.IN; pos = { x: A.x + (T.x - A.x) * u, y: A.y + (T.y - A.y) * u }; }
+    else if (now <= j.rdy) { pos = T; mv = 0; low = dtSm(Math.min(1, (now - arrive) / 350)); }
+    else { u = (now - j.rdy) / DT_WT.OUT; pos = { x: T.x + (A.x - T.x) * u, y: T.y + (A.y - T.y) * u }; low = 1 - dtSm(Math.min(1, (now - j.rdy) / 400)); }
+    var fx = pos.x * W, fy = pos.y * H, bob = mv ? Math.abs(Math.sin(ts / 110)) * H * 0.018 : 0;
+    var cx0 = fx + s * 0.34, cy0 = fy - s * 0.98;
+    var c = { x: pos.x, y: pos.y, sit: 0, moving: mv, hd: {} };
+    var link = { side: 1, x: cx0 + (pl.x - cx0) * low, y: cy0 + ((pl.y - s * 0.12) - cy0) * low, R: 1.6, w: 1 };
+    g.save();
+    var sv = [DT_PV, DT_OT_NOW, DT_SKIN_NOW];
+    DT_PV = { ot: DT_WOT, skin: '#e0ac82' };
+    try { dtFigure(g, c, DT_PAL.m, ts, 1, link); } catch (e) {}
+    DT_PV = sv[0]; DT_OT_NOW = sv[1]; DT_SKIN_NOW = sv[2];
+    var shY = fy - s * 1.16 - bob, hipY = fy - s * 0.66 - bob * 0.5;
+    g.fillStyle = '#111827';                                     // صدرية سوداء وفراشة حمراء
+    g.beginPath(); g.moveTo(fx - s * 0.23, shY + s * 0.03); g.lineTo(fx - s * 0.03, shY + s * 0.03); g.lineTo(fx - s * 0.03, hipY); g.lineTo(fx - s * 0.25, hipY); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(fx + s * 0.23, shY + s * 0.03); g.lineTo(fx + s * 0.03, shY + s * 0.03); g.lineTo(fx + s * 0.03, hipY); g.lineTo(fx + s * 0.25, hipY); g.closePath(); g.fill();
+    g.fillStyle = '#b91c1c';
+    g.beginPath(); g.moveTo(fx, shY + s * 0.02); g.lineTo(fx - s * 0.09, shY - s * 0.03); g.lineTo(fx - s * 0.09, shY + s * 0.07); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(fx, shY + s * 0.02); g.lineTo(fx + s * 0.09, shY - s * 0.03); g.lineTo(fx + s * 0.09, shY + s * 0.07); g.closePath(); g.fill();
+    var hy0 = fy - s * 2.318 - bob, im = dtWaiterFace();         // الرأس
+    if (im && im.complete && im.naturalWidth) g.drawImage(im, fx - s * 0.55, hy0, s * 1.1, s * 1.1);
+    else {
+      g.fillStyle = '#e0ac82'; g.beginPath(); g.arc(fx, hy0 + s * 0.55, s * 0.42, 0, 7); g.fill();
+      g.fillStyle = '#1f1612'; g.beginPath(); g.arc(fx, hy0 + s * 0.5, s * 0.43, Math.PI, 0); g.fill();
+      g.beginPath(); g.arc(fx - s * 0.14, hy0 + s * 0.6, s * 0.04, 0, 7); g.arc(fx + s * 0.14, hy0 + s * 0.6, s * 0.04, 0, 7); g.fill();
+    }
+    var hand = c.hd && c.hd[1];                                  // الصينية في اليد اليمنى
+    if (hand) {
+      g.fillStyle = '#cbd5e1'; g.strokeStyle = '#64748b'; g.lineWidth = Math.max(1, s * 0.015);
+      g.beginPath(); g.ellipse(hand[0], hand[1] - s * 0.03, s * 0.28, s * 0.065, 0, 0, 7); g.fill(); g.stroke();
+      var F = DT_FOOD[j.d];
+      if (now < j.rdy && F) {
+        g.fillStyle = '#2b1b10'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.font = Math.round(s * 0.3) + 'px sans-serif';
+        g.fillText(F.e, hand[0], hand[1] - s * 0.17);
+      }
+    }
+    g.restore();
+  }
+}
 var DT_FCATS = [
   ['🥗 المقبلات', ['lentil', 'salad', 'hummus', 'garlic', 'samosa']],
   ['🍽️ الأطباق الرئيسية', ['steak', 'pasta', 'chicken', 'fish', 'kabsa']],
@@ -1345,7 +1437,8 @@ function dtEatLink(role, c, o, W, H, s, pose, G) {
   return { side: sit > 0.5 ? (c.sdir || 1) : sd, x: tg.x, y: tg.y, w: w, R: e.k === 'feed' ? 1.2 : 0.95 };
 }
 function dtFoodPlate(g, W, H, s, id, G, kd) {  // الطعام على الطبق: يصغر مع كل لقمة، بخار للساخن، شمعة للحلوى، وأطباق أخرى بانتظار الدور
-  var P = G.fp; if (!P || !P.length) return;
+  var P = G.fp; if (P && P.length) P = P.filter(dtPlateReady);      // الأطباق التي لم يضعها الجرسون بعد لا تُرسم
+  if (!P || !P.length) return;
   var cur = null, q = [], i, now = Date.now();
   for (i = 0; i < P.length; i++) if (P[i].n > 0) { if (!cur) cur = P[i]; else q.push(P[i]); }
   var pp = dtPlateXY(id, W, H), fs0 = Math.min(W * 0.055, s * 0.34), e = DT.ef && DT.ef[id];
@@ -1822,6 +1915,7 @@ function dtOnMsg(j) {
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
     DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {}; DT.sp = j.sp || null;
+    DT.clk = typeof j.now === 'number' ? j.now - Date.now() : 0;      // فرق ساعة الخادم عن ساعة المتصفح (لتوقيت وصول الجرسون)
     if (dtDinner()) dtFlash('📖 المس قائمة العشاء لتطلب مشروباً وطعاماً، وللإطعام واقفين اقصدا الطاولة الصغيرة على اليمين');
   } else if (j.t === 'face') {                 // الشريك غيّر شكله أثناء الموعد
     if (j.id !== DT.myId && dtLookOk(j.look)) dtSetFace(DT.els.p, DT.partId, j.look);
@@ -2002,7 +2096,9 @@ function dtLoop(ts) {
   m.moving = d > 0.002;
   if (m.moving) {
     var f = Math.min(1, ((((DT.walk && DT.walk.fol === DT.myId) ? 2.2 : DT.drag ? 1.1 : 0.5)) * dt) / d);
-    m.x += dx * f; m.y += dy * f;
+    var ox = m.x, oy = m.y, bk = dtBlock(ox, oy, ox + dx * f, oy + dy * f);      // تصادم الطاولات والكراسي (العشاء فقط)
+    m.x = bk[0]; m.y = bk[1];
+    if (Math.abs(m.x - ox) < 1e-5 && Math.abs(m.y - oy) < 1e-5) { m.tx = m.x; m.ty = m.y; m.moving = false; }   // مسدود: يتوقف بدل أن يمشي في مكانه
   }
   if (DT.wsOk && ts - DT.sent >= 100 && (Math.abs(m.x - m.sx) > 0.002 || Math.abs(m.y - m.sy) > 0.002)) {
     DT.sent = ts; m.sx = m.x; m.sy = m.y;
