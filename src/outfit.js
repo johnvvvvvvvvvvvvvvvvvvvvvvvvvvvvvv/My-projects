@@ -1,13 +1,13 @@
 // src/outfit.js
-// ملابس الشخصية في مشهد الموعد: مصفوفة outfit من 8 أرقام صحيحة (تُقبل 6 إلى 8 وتُتمَّم بأصفار، فلا ينكسر المحفوظ القديم) تُحفظ لكل عضو في جدول مستقل user_outfit.
-// ترتيب الخانات: [علوي(6), لون العلوي(10), سفلي(4), لون السفلي(10), حذاء(3), لون الحذاء(8), نقش العلوي(5), لون النقش(10)].
+// ملابس الشخصية في مشهد الموعد: مصفوفة outfit من 12 رقماً صحيحاً (تُقبل 6 إلى 12 وتُتمَّم بأصفار، فلا ينكسر المحفوظ القديم) تُحفظ لكل عضو في جدول مستقل user_outfit.
+// ترتيب الخانات: [علوي(6), لون العلوي(10), سفلي(4), لون السفلي(10), حذاء(3), لون الحذاء(8), نقش العلوي(5), لون النقش(10), غطاء الرأس(7), لونه(10), إضافة(5), لونها(10)].
 // OUTFIT_MAX يجب أن يطابق DT_OTMAX في public/date.js.
 // العمود body محجوز لمنزلقات الجسم لاحقاً (طول، عرض...)، ولا يُكتب ولا يُقرأ في هذه المرحلة، فلا يلزم MIG حين نفعّله.
 // القيمة null تعني «بلا ملابس مخصصة»: يبقى لباس الشخصية الافتراضي في المتصفح.
 import { json, readBody } from './http.js';
 import { currentUser } from './security.js';
 
-export const OUTFIT_MAX = [6, 10, 4, 10, 3, 8, 5, 10];
+export const OUTFIT_MAX = [6, 10, 4, 10, 3, 8, 5, 10, 7, 10, 5, 10];
 const OUTFIT_MIN = 6;                // الطول الأدنى المقبول (النسخة الأولى بلا نقوش)
 const OUTFIT_GAP = 1000;   // أقل فاصل بين حفظين (مللي ثانية)
 
@@ -19,7 +19,7 @@ export function cleanOutfit(a) {
     if (!Number.isInteger(v) || v < 0 || v >= OUTFIT_MAX[i]) return null;
     o.push(v);
   }
-  while (o.length < OUTFIT_MAX.length) o.push(0);   // خانات النقش الناقصة = بلا نقش
+  while (o.length < OUTFIT_MAX.length) o.push(0);   // الخانات الناقصة (نقش/غطاء رأس/إضافة) = بلا
   return o;
 }
 
@@ -42,7 +42,7 @@ export async function loadOutfits(env, ids) {
   return out;
 }
 
-// POST /api/date/outfit  { outfit: [..6 إلى 8 أرقام..] }  أو { outfit: null } للعودة إلى الافتراضي
+// POST /api/date/outfit  { outfit: [..6 إلى 12 رقماً..] }  أو { outfit: null } للعودة إلى الافتراضي
 export async function outfitSet(req, env) {
   const u = await currentUser(req, env);
   if (!u) return json({ error: 'انتهت الجلسة، أعد تحميل الصفحة' }, 401);
