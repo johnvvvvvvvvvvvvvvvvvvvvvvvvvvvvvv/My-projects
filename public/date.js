@@ -259,6 +259,7 @@ function dtSetFace(c, seed, look) {              // يرسم/يبدّل وجه �
   c._fc = { a: av.querySelector('.fm1'), b: av.querySelector('.fm2'), o: 0 };
   c._look = look.slice(); c._hwk = null;           // يُعاد رسم غطاء الرأس في الإطار التالي
   c._skin = DT_FSKIN[look[2]];                   // لون الرقبة واليدين على الكانفاس يطابق البشرة
+  dtCinColors();                                 // مشهد السينما: لون بشرة وشعر الشخصية يتبع وجه صاحبها
 }
 
 
@@ -1850,6 +1851,54 @@ function dtPlaceHead(el, x, y, z) {
   if (z != null) el.style.zIndex = z;
 }
 
+/* ---------- مشهد السينما: cinema.html داخل iframe، والمزامنة عبر WebSocket المسرح (رسائل cin) ---------- */
+function dtCinMount(area) {
+  var f = document.createElement('iframe');
+  f.src = '/cinema.html?embed=1';
+  f.title = 'مشهد السينما';
+  f.setAttribute('allow', 'autoplay; encrypted-media; picture-in-picture; fullscreen');
+  f.style.cssText = 'position:absolute;inset:0;width:100%;height:100%;border:0;z-index:1000;background:#070a1f';
+  area.appendChild(f);
+  DT.cinF = f; DT.cinOk = 0;
+  if (!DT.cinBound) { DT.cinBound = 1; window.addEventListener('message', dtCinMsg); }
+}
+function dtCinPost(o) {
+  if (!DT.cinF || !DT.cinF.contentWindow) return;
+  o.cin = 1;
+  try { DT.cinF.contentWindow.postMessage(o, location.origin); } catch (e) {}
+}
+function dtCinMsg(ev) {                          // من الـ iframe: نقرات المستخدم الحقيقية فقط
+  var d = ev.data;
+  if (!DT.cinF || ev.source !== DT.cinF.contentWindow || ev.origin !== location.origin || !d || d.cin !== 1) return;
+  if (d.k === 'ready') { DT.cinOk = 1; dtCinSync(); return; }
+  if (d.k === 'p' || d.k === 'r' || d.k === 'd' || d.k === 'u') dtWsSend({ t: 'cin', k: d.k, v: d.v });
+}
+function dtCinRecv(j) {                          // من الشريك (الخادم لا يعيد الرسالة لمرسلها)
+  if (j.id === DT.myId) return;
+  var c = DT.cin || (DT.cin = { p: '', d: 0, u: '' });
+  if (j.k === 'p') c.p = j.v; else if (j.k === 'd') c.d = j.v ? 1 : 0; else if (j.k === 'u') c.u = j.v || '';
+  else if (j.k !== 'r') return;
+  dtCinPost({ k: j.k, v: j.k === 'u' ? (j.v ? 'https://youtu.be/' + j.v : '') : j.v });
+}
+function dtCinSync() {                           // آخر حالة محفوظة (عند الدخول أو جاهزية الـ iframe)
+  if (!DT.cinOk) return;
+  var c = DT.cin;
+  if (c) {
+    if (c.p) dtCinPost({ k: 'p', v: c.p });
+    dtCinPost({ k: 'd', v: c.d ? 1 : 0 });
+    if (c.u) dtCinPost({ k: 'u', v: 'https://youtu.be/' + c.u });
+  }
+  dtCinColors();
+}
+function dtCinColors() {                         // الذكر = الشخصية A، والأنثى = B. وعند التساوي أو الجهل يُرتَّب برقم الحساب (نفس القاعدة عند الطرفين)
+  if (!DT.cinF || !DT.cinOk || !DT.els) return;
+  var rk = function (g) { return g === 'm' ? 0 : g === 'f' ? 2 : 1; };
+  var a = rk(DT.gm), b = rk(DT.gp);
+  var meA = a !== b ? a < b : DT.myId < DT.partId;
+  var pick = function (c) { var l = c && c._look; return l ? { s: DT_FSKIN[l[2]], h: DT_HAIR[l[3]] } : null; };
+  dtCinPost({ k: 'c', a: pick(meA ? DT.els.m : DT.els.p), b: pick(meA ? DT.els.p : DT.els.m) });
+}
+
 /* ---------- الشبكة ---------- */
 function dtWsSend(o) {
   if (DT.ws && DT.wsOk) { try { DT.ws.send(JSON.stringify(o)); } catch (e) {} }
@@ -1914,7 +1963,7 @@ function dtOnMsg(j) {
     DT.sig = '';
     DT.simple = j.simple ? 1 : 0; dtApplyMode();
     DT.walk = j.walk ? { lead: j.walk.lead, fol: j.walk.fol } : null;
-    DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {}; DT.sp = j.sp || null;
+    DT.gl = j.gl || {}; DT.gd = {}; DT.ef = {}; DT.sv = {}; DT.fa = {}; DT.sp = j.sp || null; DT.cin = j.cin || null; dtCinSync();
     DT.clk = typeof j.now === 'number' ? j.now - Date.now() : 0;      // فرق ساعة الخادم عن ساعة المتصفح (لتوقيت وصول الجرسون)
     if (dtDinner()) dtFlash('📖 المس قائمة العشاء لتطلب مشروباً وطعاماً، وللإطعام واقفين اقصدا الطاولة الصغيرة على اليمين');
   } else if (j.t === 'face') {                 // الشريك غيّر شكله أثناء الموعد
@@ -1948,6 +1997,8 @@ function dtOnMsg(j) {
     DT.gl = j.gl || {}; DT.sig = '';
   } else if (j.t === 'sp') {
     DT.sp = j.sp || null; DT.sig = '';
+  } else if (j.t === 'cin') {
+    dtCinRecv(j);
   } else if (j.t === 'gs') {
     dtGlEv(j);
   } else if (j.t === 'e') {
@@ -2196,6 +2247,7 @@ function dtBuild(id, j) {
   DT.id = id; DT.ty = j.ty; DT.after = 0; DT.off = j.now - Date.now(); DT.started = j.started || j.now;
   DT.myId = mine.id; DT.partId = part.id; DT.soff = DT.off; DT.still = dtReduce();
   DT.mylook = dtLookOk(mine.look) ? mine.look.slice() : null;
+  DT.gm = mine.g || ''; DT.gp = part.g || '';          // جنس الطرفين ('m' ذكر، 'f' أنثى، '' غير معروف) لشخصيتي السينما
   var lowMine = mine.id && part.id ? mine.id < part.id : false;
   DT.ch = { m: { x: null, y: null, tx: 0.7, ty: 0.72, sx: -1, sy: -1, here: 1, moving: 0 }, p: { x: null, y: null, tx: 0.3, ty: 0.72, here: 0, moving: 0 } };
   dtSetPos(DT.ch.m, lowMine ? 0.3 : 0.7, 0.72, true);       // نفس مواضع البداية في الخادم
@@ -2273,6 +2325,8 @@ function dtBuild(id, j) {
   area.appendChild(st);
   root.appendChild(area);
   DT.st = st; DT.fx = fxc;
+  DT.cinF = null; DT.cinOk = 0; DT.cin = null;
+  if (j.ty === 'سينما') dtCinMount(area);
   st.style.transformOrigin = '0 0'; area.style.overflow = 'hidden';      // الكاميرا: التقريب داخل حدود منطقة المسرح فقط
 
   // النمط البسيط: فقاعتان فقط (مخفي افتراضياً، يُبدَّل من زر الأعلى ويُزامَن بين الطرفين)
