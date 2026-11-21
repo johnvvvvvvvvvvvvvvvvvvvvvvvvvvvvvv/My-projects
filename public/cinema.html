@@ -25,10 +25,16 @@ p.n{color:var(--mut);font-size:13px;margin:6px 0}
 .tw{animation:tw 3s ease-in-out infinite}@keyframes tw{50%{opacity:.25}}
 @media (prefers-reduced-motion:reduce){.tw{animation:none}}
 /* وضع التضمين داخل المسرح (?embed=1): يخفي أدوات المعاينة ويلائم الشاشة */
-.emb main{max-width:none;padding:4px 6px;height:100vh;height:100dvh;overflow-y:auto;display:flex;flex-direction:column;align-items:center}
-.emb .sc{flex:none;height:min(calc(100dvh - 170px),calc((100vw - 12px)*1.25));width:auto;aspect-ratio:4/5;max-width:100%}
+.emb main{max-width:none;width:100%;padding:4px;height:100vh;height:100dvh;overflow-y:auto;display:flex;flex-direction:column;align-items:center}
+.emb .sc{flex:none;height:min(calc(100dvh - 170px),calc((100vw - 8px)*1.25));width:auto;aspect-ratio:4/5;max-width:100%}
 .emb .row{justify-content:center;margin:4px 0}
 .emb button{font-size:13px;padding:5px 8px}
+/* شاشة عريضة: الأزرار في عمود جانبي بنفس حجمها، والمشهد يأخذ كامل الارتفاع */
+@media (min-aspect-ratio:11/10){
+.emb main{flex-direction:row;justify-content:center;align-items:center;gap:12px;overflow:hidden}
+.emb .sc{height:min(calc(100dvh - 8px),calc((100vw - 270px)*1.25))}
+.emb .ctl{flex:0 0 240px;max-width:240px;max-height:calc(100dvh - 8px);overflow-y:auto}
+}
 .emb .tools,.emb h1,.emb #auto{display:none}
 </style>
 </head>
@@ -84,6 +90,7 @@ p.n{color:var(--mut);font-size:13px;margin:6px 0}
 <iframe id="yt" title="فيديو" allow="autoplay; encrypted-media; picture-in-picture; fullscreen" referrerpolicy="strict-origin-when-cross-origin" allowfullscreen></iframe>
 </div>
 
+<div class="ctl">
 <div class="row" role="group" aria-label="الوضعية">
 <button data-p="idle" class="on">🛋️ جلوس</button><button data-p="lean">💞 رأس على الكتف</button><button data-p="hug">🤗 عناق</button><button data-p="kiss">💋 قبلة</button><button id="auto">▶ عرض تلقائي</button><button id="dim">🌙 تعتيم</button>
 </div>
@@ -91,6 +98,7 @@ p.n{color:var(--mut);font-size:13px;margin:6px 0}
 <button data-p="yawn">🥱 تثاؤب</button><button data-p="popcorn">🍿 فشار</button><button data-p="holdhands">🤝 تشابك أيدٍ</button><button data-p="whisper">🤫 همس</button><button data-p="doze">😴 نعاس</button><button data-r="laugh">😂 ضحك</button><button data-r="startle">😱 مفاجأة</button>
 </div>
 <div class="row"><input type="text" id="url" placeholder="https://www.youtube.com/watch?v=..." aria-label="رابط يوتيوب"><button id="go">شغّل في الشاشة</button></div>
+</div>
 <div class="row tools">
 <label>شعره<input type="color" id="c1" value="#1b1f3a"></label><label>قميصه<input type="color" id="c2" value="#2639c4"></label>
 <label>شعرها<input type="color" id="c3" value="#5a3320"></label><label>قميصها<input type="color" id="c4" value="#c2417a"></label>
