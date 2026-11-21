@@ -80,9 +80,12 @@ export class DateScene extends DurableObject {
     this.gl = {};              // طاولة العشاء: { [uid]: { lv: 0..3 مستوى الشراب, dk: نوع المشروب, h: 1 كأس بيده, o: 1 كرسي مسحوب, s: 1 جالس, fp: الأطباق [{ d: الأكلة, z: الحجم s|m|l, m: لقمات الطبق كاملاً, n: المتبقية }] } }
     this.sp = null;            // الطبق المشترك على الطاولة الصغيرة: { d, z, m, n } أو null
     this.lastToast = 0;
+    this.cin = null;           // مشهد السينما: { p: الوضعية, d: تعتيم 0/1, u: معرّف يوتيوب } أو null
+    this.lastCin = 0;
     this.ctx.blockConcurrencyWhile(async () => {
-      const [o, p, sm, gl, sp] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl'), this.ctx.storage.get('sp')]);
+      const [o, p, sm, gl, sp, cin] = await Promise.all([this.ctx.storage.get('o'), this.ctx.storage.get('pair'), this.ctx.storage.get('simple'), this.ctx.storage.get('gl'), this.ctx.storage.get('sp'), this.ctx.storage.get('cin')]);
       if (sp && typeof sp === 'object' && sp.d) this.sp = sp;
+      if (cin && typeof cin === 'object') this.cin = { p: typeof cin.p === 'string' ? cin.p.slice(0, 12) : '', d: cin.d ? 1 : 0, u: /^[\w-]{11}$/.test(cin.u || '') ? cin.u : '' };
       if (sm) this.simple = 1;
       if (o && o.rose && o.ball && o.candle) this.objs = o;
       if (Array.isArray(p)) this.pair = p;
@@ -162,7 +165,7 @@ export class DateScene extends DurableObject {
     server.send(JSON.stringify({
       t: 'hello', you: id, now, players, simple: this.simple,
       walk: this.walk ? { lead: this.walk.lead, fol: this.walk.fol } : null,
-      gl: this.gl, sp: this.sp,
+      gl: this.gl, sp: this.sp, cin: this.cin,
       objs: { rose: this.snap('rose'), ball: this.snap('ball'), candle: this.snap('candle') },
       near: this.nearState(),
     }));
@@ -228,6 +231,25 @@ export class DateScene extends DurableObject {
       this.bcast({ t: 'w', on: 1, lead: a.id, fol: o.id });
       this.moveFollower(a);
       this.nearCheck(false);
+      return;
+    }
+
+    // مشهد السينما: وضعيات وردود فعل وتعتيم ورابط يوتيوب. يُبثّ للشريك ويُحفظ آخر وضع لمن يدخل متأخراً (في الذاكرة والتخزين)
+    if (j.t === 'cin') {
+      if (now - this.lastCin < 80) return;
+      this.lastCin = now;
+      let v;
+      if (j.k === 'p') { if (['idle', 'lean', 'hug', 'kiss', 'yawn', 'popcorn', 'holdhands', 'whisper', 'doze'].indexOf(j.v) < 0) return; v = j.v; }
+      else if (j.k === 'r') { if (j.v !== 'laugh' && j.v !== 'startle') return; v = j.v; }
+      else if (j.k === 'd') { v = j.v ? 1 : 0; }
+      else if (j.k === 'u') { const m = typeof j.v === 'string' ? j.v.slice(0, 300).match(/(?:v=|youtu\.be\/|embed\/|shorts\/)([\w-]{11})/) : null; v = m ? m[1] : ''; }
+      else return;
+      if (j.k !== 'r') {
+        const c = this.cin || { p: '', d: 0, u: '' };
+        c[j.k] = v; this.cin = c;
+        this.ctx.storage.put('cin', c).catch(() => {});
+      }
+      this.bcast({ t: 'cin', id: a.id, k: j.k, v }, ws);
       return;
     }
 
@@ -654,7 +676,7 @@ export class DateScene extends DurableObject {
     for (const ws of this.ctx.getWebSockets()) { try { ws.close(1000, 'end'); } catch (e) {} }
     try { await this.ctx.storage.deleteAlarm(); } catch (e) {}
     try { await this.ctx.storage.deleteAll(); } catch (e) {}
-    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null; this.gl = {}; this.sp = null; this.lastToast = 0;
+    this.objs = freshObjs(); this.pair = null; this.fx = '0:0'; this.simple = 0; this.walk = null; this.gl = {}; this.sp = null; this.cin = null; this.lastToast = 0;
   }
 }
 

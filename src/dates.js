@@ -266,7 +266,10 @@ async function dPoll(req, env, url) {
     for (const p of pr.results) iv[p.user_id] = p.iv || 0;
     const lk = await loadLooks(env, [c.u.id, c.partner]);
     const ot = await loadOutfits(env, [c.u.id, c.partner]);
-    who = { me: { id: c.u.id, iv: iv[c.u.id] || 0, look: lk[c.u.id] || null, ot: ot[c.u.id] || null }, partner: { id: c.partner, iv: iv[c.partner] || 0, look: lk[c.partner] || null, ot: ot[c.partner] || null } };
+    const gr = await env.DB.prepare('SELECT id,gender FROM users WHERE id IN (?,?)').bind(c.u.id, c.partner).all();   // الجنس لتحديد شخصيتي السينما
+    const gd = {};
+    for (const g of gr.results) gd[g.id] = g.gender === 'ذكر' ? 'm' : g.gender === 'أنثى' ? 'f' : '';
+    who = { me: { id: c.u.id, iv: iv[c.u.id] || 0, look: lk[c.u.id] || null, ot: ot[c.u.id] || null, g: gd[c.u.id] || '' }, partner: { id: c.partner, iv: iv[c.partner] || 0, look: lk[c.partner] || null, ot: ot[c.partner] || null, g: gd[c.partner] || '' } };
   }
   return json({ ok: true, now, status: d.status, ty: d.ty, place: d.place, started: d.started_at, msgs, who });
 }
